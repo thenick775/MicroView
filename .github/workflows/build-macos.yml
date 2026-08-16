@@ -1,0 +1,41 @@
+name: Build macOS App
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install Fyne CLI
+        run: go install fyne.io/tools/cmd/fyne@latest
+
+      - name: Build Go code
+        run: go build ./...
+
+      - name: Package app bundle
+        run: ~/go/bin/fyne package -os darwin -name MicroView
+
+      - name: Zip app bundle
+        run: ditto -c -k --sequesterRsrc --keepParent MicroView.app MicroView-macos.zip
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MicroView-macos
+          path: |
+            MicroView.app
+            MicroView-macos.zip

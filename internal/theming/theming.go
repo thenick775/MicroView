@@ -13,8 +13,6 @@ const (
 	ModeLight  = "Light"
 )
 
-var Modes = []string{ModeSystem, ModeDark, ModeLight}
-
 func ThemeForMode(mode string) fyne.Theme {
 	switch mode {
 	case ModeDark:

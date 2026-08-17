@@ -115,10 +115,6 @@ func (s *Stream) FPS() float64 {
 	return float64(s.stats.Frames) / elapsed
 }
 
-func (s *Stream) Resolution() image.Point {
-	return image.Pt(resolutionW, resolutionH)
-}
-
 func (s *Stream) ReadFrame(timeout time.Duration) (*Frame, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -39,24 +38,16 @@ type capture struct {
 }
 
 type uiState struct {
-	app         fyne.App
-	win         fyne.Window
-	stream      *camera.Stream
-	streamMu    sync.Mutex
-	connectMu   sync.Mutex
-	frameMu     sync.RWMutex
-	latestFrame *camera.Frame
-	recent      []capture
-	rotations   int
-	crosshair   bool
-	fullscreen  bool
-	saveDir     string
-	connected   bool
-	streamStop  chan struct{}
-	diagLog     []string
-	themeMode   string
-	connecting  bool
-	closing     bool
+	app        fyne.App
+	win        fyne.Window
+	session    *session
+	recent     []capture
+	rotations  int
+	crosshair  bool
+	fullscreen bool
+	saveDir    string
+	diagLog    []string
+	themeMode  string
 
 	preview          *canvas.Image
 	statusLabel      *widget.Label
@@ -88,18 +79,42 @@ func Run() {
 	if saved := a.Preferences().StringWithFallback("saveDir", ""); saved != "" {
 		state.saveDir = saved
 	}
+	state.session = newSession(sessionHooks{
+		setStatus: func(text string) {
+			state.statusLabel.SetText(text)
+		},
+		setDevice: func(text string) {
+			state.deviceLabel.SetText(text)
+		},
+		setReconnectEnabled: func(enabled bool) {
+			if enabled {
+				state.reconnectBtn.Enable()
+				return
+			}
+			state.reconnectBtn.Disable()
+		},
+		addEvent: func(msg string) {
+			state.appendDiag(msg)
+		},
+		updateDiagnostics: func() {
+			state.updateDiagnostics()
+		},
+		showError: func(title string, err error) {
+			state.showCopyableError(title, err)
+		},
+		refreshPreview: func() {
+			state.refreshPreview()
+		},
+	})
 
 	w.SetMainMenu(state.buildMainMenu())
 	state.buildUI()
 	state.win.SetCloseIntercept(func() {
-		state.connectMu.Lock()
-		state.closing = true
-		state.connectMu.Unlock()
-		state.stopStreaming()
+		state.session.Stop()
 		state.win.Close()
 	})
 	state.win.Show()
-	state.startConnect()
+	state.session.Start()
 	a.Run()
 }
 
@@ -184,137 +199,21 @@ func (s *uiState) buildUI() {
 	s.updateDiagnostics()
 }
 
-func (s *uiState) connectAndStream(status, diag string) error {
-	s.stopStreaming()
-
-	stream, err := camera.Open()
-	if err != nil {
-		return err
-	}
-	if err := s.attachStream(stream); err != nil {
-		_ = stream.Close()
-		return err
-	}
-	s.finishConnectionSuccess(stream, status, diag)
-	go s.streamLoop(stream, s.streamStop)
-	s.updateDiagnostics()
-	return nil
-}
-
-func (s *uiState) startConnect() {
-	s.runConnectionAttempt(
-		"Connecting to microscope...",
-		"connect started",
-		"Connection failed",
-		"connect failed",
-		true,
-		"MicroView Error",
-		func() error {
-			return s.connectAndStream("Connected. Streaming live video.", "stream connected")
-		},
-	)
-}
-
-func (s *uiState) runConnectionAttempt(status, startDiag, failStatus, failDiag string, showDialog bool, dialogTitle string, fn func() error) {
-	s.connectMu.Lock()
-	if s.connecting || s.closing {
-		s.connectMu.Unlock()
-		return
-	}
-	s.connecting = true
-	s.connectMu.Unlock()
-	s.statusLabel.SetText(status)
-	s.appendDiag(startDiag)
-	s.reconnectBtn.Disable()
-	s.updateDiagnostics()
-
-	go func() {
-		defer func() {
-			s.connectMu.Lock()
-			s.connecting = false
-			s.connectMu.Unlock()
-			s.reconnectBtn.Enable()
-		}()
-
-		s.connectMu.Lock()
-		closing := s.closing
-		s.connectMu.Unlock()
-		if closing {
-			return
-		}
-
-		if err := fn(); err != nil {
-			s.connected = false
-			s.finishConnectionFailure(failStatus, failDiag, err, showDialog, dialogTitle)
-			s.updateDiagnostics()
-		}
-	}()
-}
-
-func (s *uiState) stopStreaming() {
-	s.streamMu.Lock()
-	stop := s.streamStop
-	stream := s.stream
-	s.streamStop = nil
-	s.stream = nil
-	s.streamMu.Unlock()
-
-	if stop != nil {
-		close(stop)
-	}
-	if stream != nil {
-		_ = stream.Close()
-	}
-}
-
-func (s *uiState) streamLoop(stream *camera.Stream, stop <-chan struct{}) {
-	for {
-		select {
-		case <-stop:
-			return
-		default:
-		}
-
-		frame, err := stream.ReadFrame(3 * time.Second)
-		if err != nil {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			s.statusLabel.SetText(fmt.Sprintf("Stream error: %v", err))
-			s.appendDiag(fmt.Sprintf("stream error: %v", err))
-			s.updateDiagnostics()
-			continue
-		}
-
-		s.frameMu.Lock()
-		s.latestFrame = frame
-		s.frameMu.Unlock()
-		s.refreshPreview()
-		s.updateDiagnostics()
-	}
-}
-
 func (s *uiState) refreshPreview() {
-	s.frameMu.RLock()
-	frame := s.latestFrame
-	s.frameMu.RUnlock()
+	frame := s.session.LatestFrame()
 	if frame == nil || frame.Image == nil {
 		return
 	}
 	img := imaging.ApplyTransforms(frame.Image, s.rotations, s.crosshair)
 	s.preview.Image = img
 	s.preview.Refresh()
-	if s.connected {
-		s.statusLabel.SetText(fmt.Sprintf("Live stream active. %0.1f FPS", s.stream.FPS()))
+	if snap := s.session.Snapshot(); snap.Connected {
+		s.statusLabel.SetText(fmt.Sprintf("Live stream active. %0.1f FPS", snap.FPS))
 	}
 }
 
 func (s *uiState) saveSnapshot() {
-	s.frameMu.RLock()
-	frame := s.latestFrame
-	s.frameMu.RUnlock()
+	frame := s.session.LatestFrame()
 	if frame == nil {
 		dialog.ShowInformation("No Frame Yet", "Wait for the first live frame before saving a snapshot.", s.win)
 		return
@@ -383,60 +282,7 @@ func (s *uiState) chooseFolder() {
 }
 
 func (s *uiState) reconnect() {
-	s.streamMu.Lock()
-	stream := s.stream
-	s.streamMu.Unlock()
-	s.runConnectionAttempt(
-		"Reconnecting to microscope...",
-		"reconnect started",
-		"Reconnect failed",
-		"reconnect failed",
-		true,
-		"Reconnect Failed",
-		func() error {
-			if stream == nil {
-				return s.connectAndStream("Reconnected successfully. Streaming live video.", "reconnected")
-			}
-			if err := stream.Reconnect(); err != nil {
-				return err
-			}
-			s.finishConnectionSuccess(stream, "Reconnected successfully. Streaming live video.", "reconnected")
-			s.updateDiagnostics()
-			return nil
-		},
-	)
-}
-
-func (s *uiState) finishConnectionFailure(statusPrefix, diagPrefix string, err error, showDialog bool, dialogTitle string) {
-	s.statusLabel.SetText(fmt.Sprintf("%s: %v", statusPrefix, err))
-	s.deviceLabel.SetText("Device: not connected")
-	s.appendDiag(fmt.Sprintf("%s: %v", diagPrefix, err))
-	if showDialog {
-		s.showCopyableError(dialogTitle, err)
-	}
-}
-
-func (s *uiState) finishConnectionSuccess(stream *camera.Stream, status, diag string) {
-	s.connected = true
-	info := stream.DeviceInfo()
-	s.deviceLabel.SetText(fmt.Sprintf("Device: %s %s (%s)\nUSB: %s:%s", safe(info.Manufacturer, "Unknown"), safe(info.Product, "supercamera"), safe(info.Serial, "no serial"), info.VendorID, info.ProductID))
-	s.statusLabel.SetText(status)
-	s.appendDiag(diag)
-	if s.reconnectBtn.Disabled() {
-		s.reconnectBtn.Enable()
-	}
-}
-
-func (s *uiState) attachStream(stream *camera.Stream) error {
-	s.streamMu.Lock()
-	defer s.streamMu.Unlock()
-	if s.streamStop != nil || s.stream != nil {
-		return fmt.Errorf("stream already active")
-	}
-	stop := make(chan struct{})
-	s.stream = stream
-	s.streamStop = stop
-	return nil
+	s.session.Reconnect()
 }
 
 func (s *uiState) appendDiag(msg string) {
@@ -463,23 +309,21 @@ func (s *uiState) showCopyableError(title string, err error) {
 }
 
 func (s *uiState) updateDiagnostics() {
-	stream := s.stream
-	if stream == nil {
+	snap := s.session.Snapshot()
+	if !snap.Connected {
 		s.diagnosticsEntry.SetText("No active stream")
 		return
 	}
-	stats := stream.Stats()
-	info := stream.DeviceInfo()
 	text := fmt.Sprintf(
 		"Manufacturer: %s\nProduct: %s\nSerial: %s\nResolution: 640x480\nFrames: %d\nFPS: %0.1f\nUSB Errors: %d\nBad Frames: %d\nReconnects: %d\n\nRecent Events:\n%s",
-		safe(info.Manufacturer, "Unknown"),
-		safe(info.Product, "supercamera"),
-		safe(info.Serial, "unavailable"),
-		stats.Frames,
-		stream.FPS(),
-		stats.USBErrors,
-		stats.BadFrames,
-		stats.Reconnects,
+		safe(snap.Info.Manufacturer, "Unknown"),
+		safe(snap.Info.Product, "supercamera"),
+		safe(snap.Info.Serial, "unavailable"),
+		snap.Stats.Frames,
+		snap.FPS,
+		snap.Stats.USBErrors,
+		snap.Stats.BadFrames,
+		snap.Stats.Reconnects,
 		joinLines(s.diagLog),
 	)
 	s.diagnosticsEntry.SetText(text)
@@ -505,40 +349,19 @@ func (s *uiState) runDebugAction(title, running string, requiresExclusiveStream 
 	}
 	dbg.Show()
 
-	go func() {
-		s.statusLabel.SetText("Running debug diagnostics...")
-		s.appendDiag(strings.ToLower(title) + " started")
-
-		wasConnected := false
-		if requiresExclusiveStream {
-			s.streamMu.Lock()
-			wasConnected = s.stream != nil
-			s.streamMu.Unlock()
-			if wasConnected {
-				s.stopStreaming()
-			}
-		}
-
-		result, err := fn()
+	s.session.RunDiagnostic(title, requiresExclusiveStream, fn, func(result string, err error) {
 		if err != nil {
 			result = strings.TrimSuffix(result, "\n")
 			if result != "" {
 				result += "\n"
 			}
 			result += fmt.Sprintf("panic: %v", err)
-			s.appendDiag(strings.ToLower(title) + " failed")
-		} else {
-			s.appendDiag(strings.ToLower(title) + " completed")
 		}
 		if strings.TrimSpace(result) == "" {
 			result = "No diagnostic output"
 		}
 		output.SetText(result)
-		if requiresExclusiveStream && wasConnected {
-			_ = s.connectAndStream("Connected. Streaming live video.", "stream connected")
-		}
-		s.updateDiagnostics()
-	}()
+	})
 }
 
 func safe(v, fallback string) string {

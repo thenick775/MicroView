@@ -18,8 +18,8 @@ Compact macOS microscope viewer built with Go and Fyne for the Geek szitman / su
 
 Test target:
 
-- `2ce3:3828`
-- `0329:2022`
+- USB VID:PID `2ce3:3828`
+- USB VID:PID `0329:2022`
 - KEEMIKA model `321P`
 - Amazon ASIN `B0C7S6ZNYT`
 

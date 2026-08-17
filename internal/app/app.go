@@ -170,15 +170,10 @@ func (s *uiState) buildUI() {
 			s.statusLabel,
 		),
 	)
-	ackText := widget.NewRichTextFromMarkdown("Acknowledgements: protocol based on reverse-engineering by hbens/geek-szitman-supercamera, MAkcanca/useeplus-linux-driver, jmz3/EndoscopeCamera, and ProbeView by Everitt Chase. Hardware target: KEEMIKA 321P / ASIN B0C7S6ZNYT.")
-	ackText.Wrapping = fyne.TextWrapWord
-	ackCard := widget.NewCard("Acknowledgements", "Protocol lineage", ackText)
-
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Session", settingsCard),
 		container.NewTabItem("Diagnostics", widget.NewCard("Diagnostics", "Device and stream status", s.diagnosticsEntry)),
 		container.NewTabItem("Captures", recentCard),
-		container.NewTabItem("About", ackCard),
 	)
 	tabs.SetTabLocation(container.TabLocationTop)
 	content := container.NewHSplit(leftTop, tabs)

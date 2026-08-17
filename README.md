@@ -1,6 +1,6 @@
 # MicroView
 
-Compact, professional macOS microscope viewer built with Go and Fyne for the Geek szitman / supercamera / USeePlus USB microscope family.
+Compact macOS microscope viewer built with Go and Fyne for the Geek szitman / supercamera / USeePlus USB microscope family.
 
 ## Features
 
@@ -23,7 +23,7 @@ Test target:
 - KEEMIKA model `321P`
 - Amazon ASIN `B0C7S6ZNYT`
 
-This is a non-UVC microscope. It does not work like a standard webcam. The app talks to the device over its proprietary packet protocol.
+This is a non-UVC microscope. It does not work like a standard webcam. This app talks to the device over its proprietary packet protocol.
 
 Reference product listing:
 
@@ -36,7 +36,6 @@ Where/why i got the product above, I sharpen knives and found the product here:
 ## Run
 
 ```bash
-go mod tidy
 go run .
 ```
 
@@ -49,7 +48,6 @@ open MicroView.app
 ## Build
 
 ```bash
-go mod tidy
 go build -o MicroView
 ```
 

@@ -68,14 +68,9 @@ go install fyne.io/tools/cmd/fyne@latest
 
 Protocol understanding and interoperability work were informed by:
 
-- `hbens/geek-szitman-supercamera`
-- `MAkcanca/useeplus-linux-driver`
-- `jmz3/EndoscopeCamera`
-- `echase/ProbeView`
+- [`hbens/geek-szitman-supercamera`](https://github.com/hbens/geek-szitman-supercamera)
+- [`MAkcanca/useeplus-linux-driver`](https://github.com/MAkcanca/useeplus-linux-driver)
+- [`jmz3/EndoscopeCamera`](https://github.com/jmz3/EndoscopeCamera)
+- [`echase/ProbeView`](https://github.com/echase/ProbeView)
 
 MicroView is not affiliated with or endorsed by the microscope vendor.
-
-## Notes
-
-- Built with Go `1.26.6`
-- Built against `fyne.io/fyne/v2 v2.7.0`

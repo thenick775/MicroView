@@ -43,6 +43,7 @@ type uiState struct {
 	win         fyne.Window
 	stream      *camera.Stream
 	streamMu    sync.Mutex
+	connectMu   sync.Mutex
 	frameMu     sync.RWMutex
 	latestFrame *camera.Frame
 	recent      []capture
@@ -54,6 +55,8 @@ type uiState struct {
 	streamStop  chan struct{}
 	diagLog     []string
 	themeMode   string
+	connecting  bool
+	closing     bool
 
 	preview          *canvas.Image
 	statusLabel      *widget.Label
@@ -88,12 +91,16 @@ func Run() {
 
 	w.SetMainMenu(state.buildMainMenu())
 	state.buildUI()
-	state.connectAndStream(true)
 	state.win.SetCloseIntercept(func() {
+		state.connectMu.Lock()
+		state.closing = true
+		state.connectMu.Unlock()
 		state.stopStreaming()
 		state.win.Close()
 	})
-	state.win.ShowAndRun()
+	state.win.Show()
+	state.startConnect(true)
+	a.Run()
 }
 
 func (s *uiState) buildUI() {
@@ -188,25 +195,48 @@ func (s *uiState) connectAndStream(initial bool) {
 	stream, err := camera.Open()
 	if err != nil {
 		s.connected = false
-		s.statusLabel.SetText(fmt.Sprintf("Connection failed: %v", err))
-		s.deviceLabel.SetText("Device: not connected")
-		s.appendDiag(fmt.Sprintf("connect failed: %v", err))
-		if initial {
-			s.showCopyableError("MicroView Error", err)
-		}
+		s.finishConnectionFailure("Connection failed", "connect failed", err, initial, "MicroView Error")
+		s.updateDiagnostics()
 		return
 	}
-	s.streamMu.Lock()
-	s.stream = stream
-	stop := make(chan struct{})
-	s.streamStop = stop
-	s.streamMu.Unlock()
-	s.connected = true
-	info := stream.DeviceInfo()
-	s.deviceLabel.SetText(fmt.Sprintf("Device: %s %s (%s)\nUSB: %s:%s", safe(info.Manufacturer, "Unknown"), safe(info.Product, "supercamera"), safe(info.Serial, "no serial"), info.VendorID, info.ProductID))
-	s.statusLabel.SetText("Connected. Streaming live video.")
-	s.appendDiag("stream connected")
-	go s.streamLoop(stream, stop)
+	if err := s.attachStream(stream); err != nil {
+		s.connected = false
+		s.finishConnectionFailure("Connection failed", "connect failed", err, initial, "MicroView Error")
+		s.updateDiagnostics()
+		return
+	}
+	s.finishConnectionSuccess(stream, "Connected. Streaming live video.", "stream connected")
+	go s.streamLoop(stream, s.streamStop)
+	s.updateDiagnostics()
+}
+
+func (s *uiState) startConnect(initial bool) {
+	s.connectMu.Lock()
+	if s.connecting || s.closing {
+		s.connectMu.Unlock()
+		return
+	}
+	s.connecting = true
+	s.connectMu.Unlock()
+	s.beginConnectionAttempt(initial)
+
+	go func() {
+		defer func() {
+			s.connectMu.Lock()
+			s.connecting = false
+			s.connectMu.Unlock()
+			s.reconnectBtn.Enable()
+		}()
+
+		s.connectMu.Lock()
+		closing := s.closing
+		s.connectMu.Unlock()
+		if closing {
+			return
+		}
+
+		s.connectAndStream(initial)
+	}()
 }
 
 func (s *uiState) stopStreaming() {
@@ -341,23 +371,83 @@ func (s *uiState) chooseFolder() {
 }
 
 func (s *uiState) reconnect() {
+	s.connectMu.Lock()
+	if s.connecting || s.closing {
+		s.connectMu.Unlock()
+		return
+	}
+	s.connecting = true
+	s.connectMu.Unlock()
+	s.beginConnectionAttempt(false)
+
 	s.streamMu.Lock()
 	stream := s.stream
 	s.streamMu.Unlock()
-	if stream == nil {
-		s.connectAndStream(false)
-		return
+	go func() {
+		defer func() {
+			s.connectMu.Lock()
+			s.connecting = false
+			s.connectMu.Unlock()
+			s.reconnectBtn.Enable()
+		}()
+
+		if stream == nil {
+			s.connectAndStream(false)
+			return
+		}
+		if err := stream.Reconnect(); err != nil {
+			s.connected = false
+			s.finishConnectionFailure("Reconnect failed", "reconnect failed", err, false, "Reconnect Failed")
+			s.updateDiagnostics()
+			return
+		}
+		s.finishConnectionSuccess(stream, "Reconnected successfully. Streaming live video.", "reconnected")
+		s.updateDiagnostics()
+	}()
+}
+
+func (s *uiState) beginConnectionAttempt(initial bool) {
+	if initial {
+		s.statusLabel.SetText("Connecting to microscope...")
+		s.appendDiag("connect started")
+	} else {
+		s.statusLabel.SetText("Reconnecting to microscope...")
+		s.appendDiag("reconnect started")
 	}
-	if err := stream.Reconnect(); err != nil {
-		s.statusLabel.SetText(fmt.Sprintf("Reconnect failed: %v", err))
-		s.appendDiag(fmt.Sprintf("reconnect failed: %v", err))
-		s.showCopyableError("Reconnect Failed", err)
-		return
-	}
-	s.connected = true
-	s.statusLabel.SetText("Reconnected successfully.")
-	s.appendDiag("reconnected")
+	s.reconnectBtn.Disable()
 	s.updateDiagnostics()
+}
+
+func (s *uiState) finishConnectionFailure(statusPrefix, diagPrefix string, err error, showDialog bool, dialogTitle string) {
+	s.statusLabel.SetText(fmt.Sprintf("%s: %v", statusPrefix, err))
+	s.deviceLabel.SetText("Device: not connected")
+	s.appendDiag(fmt.Sprintf("%s: %v", diagPrefix, err))
+	if showDialog {
+		s.showCopyableError(dialogTitle, err)
+	}
+}
+
+func (s *uiState) finishConnectionSuccess(stream *camera.Stream, status, diag string) {
+	s.connected = true
+	info := stream.DeviceInfo()
+	s.deviceLabel.SetText(fmt.Sprintf("Device: %s %s (%s)\nUSB: %s:%s", safe(info.Manufacturer, "Unknown"), safe(info.Product, "supercamera"), safe(info.Serial, "no serial"), info.VendorID, info.ProductID))
+	s.statusLabel.SetText(status)
+	s.appendDiag(diag)
+	if s.reconnectBtn.Disabled() {
+		s.reconnectBtn.Enable()
+	}
+}
+
+func (s *uiState) attachStream(stream *camera.Stream) error {
+	s.streamMu.Lock()
+	defer s.streamMu.Unlock()
+	if s.streamStop != nil || s.stream != nil {
+		return fmt.Errorf("stream already active")
+	}
+	stop := make(chan struct{})
+	s.stream = stream
+	s.streamStop = stop
+	return nil
 }
 
 func (s *uiState) appendDiag(msg string) {

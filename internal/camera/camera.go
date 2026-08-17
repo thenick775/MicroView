@@ -78,7 +78,7 @@ type Stream struct {
 	iapOutEP   *gousb.OutEndpoint
 	buf        []byte
 	curFID     *byte
-	framesRead uint64
+	framesRead atomic.Uint64
 	stats      Stats
 	start      time.Time
 	info       DeviceInfo
@@ -185,7 +185,7 @@ func (s *Stream) Reconnect() error {
 	s.stats.Reconnects++
 	s.start = time.Now()
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		if err := s.connectLocked(); err == nil {
 			return nil
 		} else {
@@ -212,7 +212,7 @@ func (s *Stream) connect() error {
 
 func (s *Stream) connectWithRetry(attempts int) error {
 	var lastErr error
-	for attempt := 0; attempt < attempts; attempt++ {
+	for range attempts {
 		if err := s.connect(); err == nil {
 			return nil
 		} else {
@@ -414,7 +414,7 @@ func (s *Stream) readJPEGWithTimeoutLocked(timeout time.Duration) ([]byte, error
 			s.buf = append(s.buf[:0], chunk...)
 			s.curFID = &fid
 			if isJPEG(frame) {
-				atomic.AddUint64(&s.framesRead, 1)
+				s.framesRead.Add(1)
 				return frame, nil
 			}
 			continue

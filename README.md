@@ -1,5 +1,11 @@
 # MicroView
 
+<div>
+  <a href="https://github.com/thenick775/MicroView/actions/workflows/build-macos.yml">
+    <img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/thenick775/MicroView/build-macos.yml">
+  </a>
+</div>
+
 Compact macOS microscope viewer built with Go and Fyne for the Geek szitman / supercamera / USeePlus USB microscope family.
 
 ## Features
@@ -54,6 +60,7 @@ go build -o MicroView
 To package as a Fyne app bundle on macOS:
 
 ```bash
+go install fyne.io/tools/cmd/fyne@latest
 ~/go/bin/fyne package -os darwin -name MicroView
 ```
 

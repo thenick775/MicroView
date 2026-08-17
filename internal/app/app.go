@@ -99,7 +99,7 @@ func Run() {
 		state.win.Close()
 	})
 	state.win.Show()
-	state.startConnect(true)
+	state.startConnect()
 	a.Run()
 }
 
@@ -189,28 +189,38 @@ func (s *uiState) buildUI() {
 	s.updateDiagnostics()
 }
 
-func (s *uiState) connectAndStream(initial bool) {
+func (s *uiState) connectAndStream(status, diag string) error {
 	s.stopStreaming()
 
 	stream, err := camera.Open()
 	if err != nil {
-		s.connected = false
-		s.finishConnectionFailure("Connection failed", "connect failed", err, initial, "MicroView Error")
-		s.updateDiagnostics()
-		return
+		return err
 	}
 	if err := s.attachStream(stream); err != nil {
-		s.connected = false
-		s.finishConnectionFailure("Connection failed", "connect failed", err, initial, "MicroView Error")
-		s.updateDiagnostics()
-		return
+		_ = stream.Close()
+		return err
 	}
-	s.finishConnectionSuccess(stream, "Connected. Streaming live video.", "stream connected")
+	s.finishConnectionSuccess(stream, status, diag)
 	go s.streamLoop(stream, s.streamStop)
 	s.updateDiagnostics()
+	return nil
 }
 
-func (s *uiState) startConnect(initial bool) {
+func (s *uiState) startConnect() {
+	s.runConnectionAttempt(
+		"Connecting to microscope...",
+		"connect started",
+		"Connection failed",
+		"connect failed",
+		true,
+		"MicroView Error",
+		func() error {
+			return s.connectAndStream("Connected. Streaming live video.", "stream connected")
+		},
+	)
+}
+
+func (s *uiState) runConnectionAttempt(status, startDiag, failStatus, failDiag string, showDialog bool, dialogTitle string, fn func() error) {
 	s.connectMu.Lock()
 	if s.connecting || s.closing {
 		s.connectMu.Unlock()
@@ -218,7 +228,10 @@ func (s *uiState) startConnect(initial bool) {
 	}
 	s.connecting = true
 	s.connectMu.Unlock()
-	s.beginConnectionAttempt(initial)
+	s.statusLabel.SetText(status)
+	s.appendDiag(startDiag)
+	s.reconnectBtn.Disable()
+	s.updateDiagnostics()
 
 	go func() {
 		defer func() {
@@ -235,7 +248,11 @@ func (s *uiState) startConnect(initial bool) {
 			return
 		}
 
-		s.connectAndStream(initial)
+		if err := fn(); err != nil {
+			s.connected = false
+			s.finishConnectionFailure(failStatus, failDiag, err, showDialog, dialogTitle)
+			s.updateDiagnostics()
+		}
 	}()
 }
 
@@ -371,51 +388,28 @@ func (s *uiState) chooseFolder() {
 }
 
 func (s *uiState) reconnect() {
-	s.connectMu.Lock()
-	if s.connecting || s.closing {
-		s.connectMu.Unlock()
-		return
-	}
-	s.connecting = true
-	s.connectMu.Unlock()
-	s.beginConnectionAttempt(false)
-
 	s.streamMu.Lock()
 	stream := s.stream
 	s.streamMu.Unlock()
-	go func() {
-		defer func() {
-			s.connectMu.Lock()
-			s.connecting = false
-			s.connectMu.Unlock()
-			s.reconnectBtn.Enable()
-		}()
-
-		if stream == nil {
-			s.connectAndStream(false)
-			return
-		}
-		if err := stream.Reconnect(); err != nil {
-			s.connected = false
-			s.finishConnectionFailure("Reconnect failed", "reconnect failed", err, false, "Reconnect Failed")
+	s.runConnectionAttempt(
+		"Reconnecting to microscope...",
+		"reconnect started",
+		"Reconnect failed",
+		"reconnect failed",
+		true,
+		"Reconnect Failed",
+		func() error {
+			if stream == nil {
+				return s.connectAndStream("Reconnected successfully. Streaming live video.", "reconnected")
+			}
+			if err := stream.Reconnect(); err != nil {
+				return err
+			}
+			s.finishConnectionSuccess(stream, "Reconnected successfully. Streaming live video.", "reconnected")
 			s.updateDiagnostics()
-			return
-		}
-		s.finishConnectionSuccess(stream, "Reconnected successfully. Streaming live video.", "reconnected")
-		s.updateDiagnostics()
-	}()
-}
-
-func (s *uiState) beginConnectionAttempt(initial bool) {
-	if initial {
-		s.statusLabel.SetText("Connecting to microscope...")
-		s.appendDiag("connect started")
-	} else {
-		s.statusLabel.SetText("Reconnecting to microscope...")
-		s.appendDiag("reconnect started")
-	}
-	s.reconnectBtn.Disable()
-	s.updateDiagnostics()
+			return nil
+		},
+	)
 }
 
 func (s *uiState) finishConnectionFailure(statusPrefix, diagPrefix string, err error, showDialog bool, dialogTitle string) {
@@ -546,7 +540,7 @@ func (s *uiState) runDebugAction(title, running string, requiresExclusiveStream 
 		}
 		output.SetText(result)
 		if requiresExclusiveStream && wasConnected {
-			s.connectAndStream(false)
+			_ = s.connectAndStream("Connected. Streaming live video.", "stream connected")
 		}
 		s.updateDiagnostics()
 	}()

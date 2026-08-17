@@ -50,7 +50,7 @@ func (s *session) Start() {
 		"Connection failed",
 		"connect failed",
 		true,
-		"MicroView Error",
+		"Connect Error",
 		func() error {
 			return s.openAndStream("Connected. Streaming live video.", "stream connected")
 		},

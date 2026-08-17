@@ -51,7 +51,7 @@ type uiState struct {
 
 	preview          *canvas.Image
 	statusLabel      *widget.Label
-	diagnosticsEntry *widget.Entry
+	diagnosticsLabel *widget.Label
 	deviceLabel      *widget.Label
 	folderLabel      *widget.Label
 	recentGrid       *fyne.Container
@@ -100,7 +100,7 @@ func Run() {
 			state.updateDiagnostics()
 		},
 		showError: func(title string, err error) {
-			state.showCopyableError(title, err)
+			state.showErrorDialog(title, err)
 		},
 		refreshPreview: func() {
 			state.refreshPreview()
@@ -125,10 +125,8 @@ func (s *uiState) buildUI() {
 
 	s.statusLabel = widget.NewLabel("Connecting to microscope...")
 	s.statusLabel.Wrapping = fyne.TextWrapWord
-	s.diagnosticsEntry = widget.NewMultiLineEntry()
-	s.diagnosticsEntry.Wrapping = fyne.TextWrapWord
-	s.diagnosticsEntry.Disable()
-	s.diagnosticsEntry.SetMinRowsVisible(8)
+	s.diagnosticsLabel = widget.NewLabel("No active stream")
+	s.diagnosticsLabel.Wrapping = fyne.TextWrapWord
 	s.deviceLabel = widget.NewLabel("Device: not connected")
 	s.folderLabel = widget.NewLabel(s.saveDir)
 	s.folderLabel.Wrapping = fyne.TextWrapWord
@@ -187,7 +185,7 @@ func (s *uiState) buildUI() {
 	)
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Session", settingsCard),
-		container.NewTabItem("Diagnostics", widget.NewCard("Diagnostics", "Device and stream status", s.diagnosticsEntry)),
+		container.NewTabItem("Diagnostics", widget.NewCard("Diagnostics", "Device and stream status", container.NewVScroll(s.diagnosticsLabel))),
 		container.NewTabItem("Captures", recentCard),
 	)
 	tabs.SetTabLocation(container.TabLocationTop)
@@ -219,13 +217,13 @@ func (s *uiState) saveSnapshot() {
 		return
 	}
 	if err := os.MkdirAll(s.saveDir, 0o755); err != nil {
-		s.showCopyableError("Create Capture Folder Failed", err)
+		s.showErrorDialog("Create Capture Folder Failed", err)
 		return
 	}
 	name := fmt.Sprintf("microview-%s.jpg", time.Now().Format("20060102-150405"))
 	path := filepath.Join(s.saveDir, name)
 	if err := os.WriteFile(path, frame.JPEG, 0o644); err != nil {
-		s.showCopyableError("Save Snapshot Failed", err)
+		s.showErrorDialog("Save Snapshot Failed", err)
 		return
 	}
 	c := capture{name: name, path: path, img: imaging.ApplyTransforms(frame.Image, s.rotations, s.crosshair), stamp: time.Now()}
@@ -267,7 +265,7 @@ func (s *uiState) refreshRecentGrid() {
 func (s *uiState) chooseFolder() {
 	dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
 		if err != nil {
-			s.showCopyableError("Choose Folder Failed", err)
+			s.showErrorDialog("Choose Folder Failed", err)
 			return
 		}
 		if uri == nil {
@@ -293,16 +291,10 @@ func (s *uiState) appendDiag(msg string) {
 	}
 }
 
-func (s *uiState) showCopyableError(title string, err error) {
-	msg := err.Error()
-	entry := widget.NewMultiLineEntry()
-	entry.SetText(msg)
-	entry.Wrapping = fyne.TextWrapWord
-	entry.SetMinRowsVisible(4)
-	copyBtn := widget.NewButtonWithIcon("Copy", theme.ContentCopyIcon(), func() {
-		s.app.Clipboard().SetContent(msg)
-	})
-	content := container.NewBorder(nil, copyBtn, nil, nil, entry)
+func (s *uiState) showErrorDialog(title string, err error) {
+	label := widget.NewLabel(err.Error())
+	label.Wrapping = fyne.TextWrapWord
+	content := container.NewVScroll(label)
 	d := dialog.NewCustom(title, "Close", content, s.win)
 	d.Resize(fyne.NewSize(720, 220))
 	d.Show()
@@ -311,11 +303,11 @@ func (s *uiState) showCopyableError(title string, err error) {
 func (s *uiState) updateDiagnostics() {
 	snap := s.session.Snapshot()
 	if !snap.Connected {
-		s.diagnosticsEntry.SetText("No active stream")
+		s.diagnosticsLabel.SetText("No active stream")
 		return
 	}
 	text := fmt.Sprintf(
-		"Manufacturer: %s\nProduct: %s\nSerial: %s\nResolution: 640x480\nFrames: %d\nFPS: %0.1f\nUSB Errors: %d\nBad Frames: %d\nReconnects: %d\n\nRecent Events:\n%s",
+		"Manufacturer: %s\nProduct: %s\nSerial: %s\nResolution: 640x480\n\nFrames: %d\nFPS: %0.1f\nUSB Errors: %d\nBad Frames: %d\nReconnects: %d\n\nRecent Events:\n%s",
 		safe(snap.Info.Manufacturer, "Unknown"),
 		safe(snap.Info.Product, "supercamera"),
 		safe(snap.Info.Serial, "unavailable"),
@@ -326,7 +318,7 @@ func (s *uiState) updateDiagnostics() {
 		snap.Stats.Reconnects,
 		joinLines(s.diagLog),
 	)
-	s.diagnosticsEntry.SetText(text)
+	s.diagnosticsLabel.SetText(text)
 }
 
 func (s *uiState) runDebugAction(title, running string, requiresExclusiveStream bool, fn func() (string, error)) {

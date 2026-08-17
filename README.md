@@ -6,7 +6,9 @@
   </a>
 </div>
 
-Compact macOS microscope viewer built with Go and Fyne for the Geek szitman / supercamera / USeePlus USB microscope family.
+A compact macOS microscope viewer built with Go and Fyne for the Geek szitman / supercamera / USeePlus USB microscope family.
+
+I built this because I sharpen knives, and got a microscope for use with a fixed angle sharpener. Sadly, all the hardware I had was not able to get it working on older devices with lightening ports, so here we are making it work on desktop! This should have the same functionality as `sup-anesok` the app, but for desktop and free/open source forever.
 
 ## Features
 

@@ -10,6 +10,8 @@ import (
 	"github.com/google/gousb"
 )
 
+// PacketHeaderDump opens the microscope, and captures a short packet-header sample,
+// returning its output.
 func PacketHeaderDump(count int, timeout time.Duration) (string, error) {
 	var b strings.Builder
 	b.WriteString("open: start\n")
@@ -34,6 +36,8 @@ func PacketHeaderDump(count int, timeout time.Duration) (string, error) {
 	return strings.TrimSuffix(b.String(), "\n"), nil
 }
 
+// ProbeCapture opens the microscope, saves one JPEG frame to the system temp
+// directory, and returns a short summary of device and stream stats.
 func ProbeCapture(timeout time.Duration) (string, error) {
 	stream, err := Open()
 	if err != nil {
@@ -66,6 +70,8 @@ func ProbeCapture(timeout time.Duration) (string, error) {
 	), nil
 }
 
+// DescriptorDump enumerates matching USB devices and returns their configs,
+// interfaces, and endpoint descriptors as plain text.
 func DescriptorDump() (string, error) {
 	ctx := gousb.NewContext()
 	defer ctx.Close()

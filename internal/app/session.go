@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"microview/internal/camera"
+
+	"fyne.io/fyne/v2"
 )
 
 type sessionSnapshot struct {
@@ -32,6 +34,7 @@ type session struct {
 	frameMu     sync.RWMutex
 	stream      *camera.Stream
 	streamStop  chan struct{}
+	diagStop    chan struct{}
 	latestFrame *camera.Frame
 	connected   bool
 	connecting  bool
@@ -111,8 +114,10 @@ func (s *session) Snapshot() sessionSnapshot {
 
 func (s *session) RunDiagnostic(title string, requiresExclusiveStream bool, fn func() (string, error), onDone func(string, error)) {
 	go func() {
-		s.hooks.setStatus("Running debug diagnostics...")
-		s.hooks.addEvent(strings.ToLower(title) + " started")
+		fyne.Do(func() {
+			s.hooks.setStatus("Running debug diagnostics...")
+			s.hooks.addEvent(strings.ToLower(title) + " started")
+		})
 
 		wasConnected := false
 		if requiresExclusiveStream {
@@ -124,15 +129,21 @@ func (s *session) RunDiagnostic(title string, requiresExclusiveStream bool, fn f
 
 		result, err := fn()
 		if err != nil {
-			s.hooks.addEvent(strings.ToLower(title) + " failed")
+			fyne.Do(func() {
+				s.hooks.addEvent(strings.ToLower(title) + " failed")
+			})
 		} else {
-			s.hooks.addEvent(strings.ToLower(title) + " completed")
+			fyne.Do(func() {
+				s.hooks.addEvent(strings.ToLower(title) + " completed")
+			})
 		}
 		if requiresExclusiveStream && wasConnected {
 			_ = s.openAndStream("Connected. Streaming live video.", "stream connected")
 		}
-		s.hooks.updateDiagnostics()
-		onDone(result, err)
+		fyne.Do(s.hooks.updateDiagnostics)
+		fyne.Do(func() {
+			onDone(result, err)
+		})
 	}()
 }
 
@@ -155,7 +166,9 @@ func (s *session) runConnectionAttempt(status, startDiag, failStatus, failDiag s
 			s.connectMu.Lock()
 			s.connecting = false
 			s.connectMu.Unlock()
-			s.hooks.setReconnectEnabled(true)
+			fyne.Do(func() {
+				s.hooks.setReconnectEnabled(true)
+			})
 		}()
 
 		s.connectMu.Lock()
@@ -169,13 +182,15 @@ func (s *session) runConnectionAttempt(status, startDiag, failStatus, failDiag s
 			s.streamMu.Lock()
 			s.connected = false
 			s.streamMu.Unlock()
-			s.hooks.setStatus(fmt.Sprintf("%s: %v", failStatus, err))
-			s.hooks.setDevice("Device: not connected")
-			s.hooks.addEvent(fmt.Sprintf("%s: %v", failDiag, err))
-			if showDialog {
-				s.hooks.showError(dialogTitle, err)
-			}
-			s.hooks.updateDiagnostics()
+			fyne.Do(func() {
+				s.hooks.setStatus(fmt.Sprintf("%s: %v", failStatus, err))
+				s.hooks.setDevice("Device: not connected")
+				s.hooks.addEvent(fmt.Sprintf("%s: %v", failDiag, err))
+				if showDialog {
+					s.hooks.showError(dialogTitle, err)
+				}
+				s.hooks.updateDiagnostics()
+			})
 		}
 	}()
 }
@@ -192,6 +207,7 @@ func (s *session) openAndStream(status, event string) error {
 		return err
 	}
 	s.applyConnectionSuccess(stream, status, event)
+	go s.diagnosticsLoop(s.currentDiagStop())
 	go s.streamLoop(stream, s.currentStop())
 	s.hooks.updateDiagnostics()
 	return nil
@@ -210,14 +226,19 @@ func (s *session) applyConnectionSuccess(stream *camera.Stream, status, event st
 func (s *session) stopStreaming() {
 	s.streamMu.Lock()
 	stop := s.streamStop
+	diagStop := s.diagStop
 	stream := s.stream
 	s.streamStop = nil
+	s.diagStop = nil
 	s.stream = nil
 	s.connected = false
 	s.streamMu.Unlock()
 
 	if stop != nil {
 		close(stop)
+	}
+	if diagStop != nil {
+		close(diagStop)
 	}
 	if stream != nil {
 		_ = stream.Close()
@@ -240,17 +261,31 @@ func (s *session) streamLoop(stream *camera.Stream, stop <-chan struct{}) {
 				return
 			default:
 			}
-			s.hooks.setStatus(fmt.Sprintf("Stream error: %v", err))
-			s.hooks.addEvent(fmt.Sprintf("stream error: %v", err))
-			s.hooks.updateDiagnostics()
+			fyne.Do(func() {
+				s.hooks.setStatus(fmt.Sprintf("Stream error: %v", err))
+				s.hooks.addEvent(fmt.Sprintf("stream error: %v", err))
+				s.hooks.updateDiagnostics()
+			})
 			continue
 		}
 
 		s.frameMu.Lock()
 		s.latestFrame = frame
 		s.frameMu.Unlock()
-		s.hooks.refreshPreview()
-		s.hooks.updateDiagnostics()
+		fyne.Do(s.hooks.refreshPreview)
+	}
+}
+
+func (s *session) diagnosticsLoop(stop <-chan struct{}) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			fyne.Do(s.hooks.updateDiagnostics)
+		}
 	}
 }
 
@@ -262,6 +297,7 @@ func (s *session) attachStream(stream *camera.Stream) error {
 	}
 	s.stream = stream
 	s.streamStop = make(chan struct{})
+	s.diagStop = make(chan struct{})
 	return nil
 }
 
@@ -275,4 +311,10 @@ func (s *session) currentStop() <-chan struct{} {
 	s.streamMu.RLock()
 	defer s.streamMu.RUnlock()
 	return s.streamStop
+}
+
+func (s *session) currentDiagStop() <-chan struct{} {
+	s.streamMu.RLock()
+	defer s.streamMu.RUnlock()
+	return s.diagStop
 }

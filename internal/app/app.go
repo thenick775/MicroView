@@ -62,21 +62,21 @@ type uiState struct {
 }
 
 func Run() {
-	a := app.NewWithID(appID)
-	themeMode := a.Preferences().StringWithFallback("themeMode", theming.ModeDark)
-	a.Settings().SetTheme(theming.ThemeForMode(themeMode))
-	w := a.NewWindow("MicroView")
-	w.Resize(fyne.NewSize(1320, 860))
+	app := app.NewWithID(appID)
+	themeMode := app.Preferences().StringWithFallback("themeMode", theming.ModeDark)
+	app.Settings().SetTheme(theming.ThemeForMode(themeMode))
+	window := app.NewWindow("MicroView")
+	window.Resize(fyne.NewSize(1320, 860))
 
 	state := &uiState{
-		app:       a,
-		win:       w,
+		app:       app,
+		win:       window,
 		saveDir:   expandHome(defaultSaveDir),
 		crosshair: true,
 		diagLog:   []string{"Ready"},
 		themeMode: themeMode,
 	}
-	if saved := a.Preferences().StringWithFallback("saveDir", ""); saved != "" {
+	if saved := app.Preferences().StringWithFallback("saveDir", ""); saved != "" {
 		state.saveDir = saved
 	}
 	state.session = newSession(sessionHooks{
@@ -93,21 +93,13 @@ func Run() {
 			}
 			state.reconnectBtn.Disable()
 		},
-		addEvent: func(msg string) {
-			state.appendDiag(msg)
-		},
-		updateDiagnostics: func() {
-			state.updateDiagnostics()
-		},
-		showError: func(title string, err error) {
-			state.showErrorDialog(title, err)
-		},
-		refreshPreview: func() {
-			state.refreshPreview()
-		},
+		addEvent:          state.appendDiag,
+		updateDiagnostics: state.updateDiagnostics,
+		showError:         state.showErrorDialog,
+		refreshPreview:    state.refreshPreview,
 	})
 
-	w.SetMainMenu(state.buildMainMenu())
+	window.SetMainMenu(state.buildMainMenu())
 	state.buildUI()
 	state.win.SetCloseIntercept(func() {
 		state.session.Stop()
@@ -115,7 +107,7 @@ func Run() {
 	})
 	state.win.Show()
 	state.session.Start()
-	a.Run()
+	app.Run()
 }
 
 func (s *uiState) buildUI() {
@@ -128,6 +120,7 @@ func (s *uiState) buildUI() {
 	s.diagnosticsLabel = widget.NewLabel("No active stream")
 	s.diagnosticsLabel.Wrapping = fyne.TextWrapWord
 	s.deviceLabel = widget.NewLabel("Device: not connected")
+	s.deviceLabel.Wrapping = fyne.TextWrapWord
 	s.folderLabel = widget.NewLabel(s.saveDir)
 	s.folderLabel.Wrapping = fyne.TextWrapWord
 	s.rotateLabel = widget.NewLabel("Rotation: 0°")
@@ -171,22 +164,31 @@ func (s *uiState) buildUI() {
 	), nil, nil, s.preview)
 
 	s.recentGrid = container.NewGridWithColumns(2)
-	recentCard := widget.NewCard("Recent Captures", "Latest snapshots", container.NewVScroll(s.recentGrid))
+	sessionContent := container.NewVScroll(container.NewPadded(container.NewVBox(
+		widget.NewLabel("Capture folder and current device"),
+		widget.NewSeparator(),
+		widget.NewLabel("Capture Folder"),
+		s.folderLabel,
+		widget.NewSeparator(),
+		s.deviceLabel,
+		widget.NewSeparator(),
+		s.statusLabel,
+	)))
+	diagnosticsContent := container.NewVScroll(container.NewPadded(container.NewVBox(
+		widget.NewLabel("Device and stream status"),
+		widget.NewSeparator(),
+		s.diagnosticsLabel,
+	)))
+	capturesContent := container.NewVScroll(container.NewPadded(container.NewVBox(
+		widget.NewLabel("Latest snapshots"),
+		widget.NewSeparator(),
+		s.recentGrid,
+	)))
 
-	settingsCard := widget.NewCard("Session", "Capture folder and current device",
-		container.NewVBox(
-			widget.NewLabel("Capture Folder"),
-			s.folderLabel,
-			widget.NewSeparator(),
-			s.deviceLabel,
-			widget.NewSeparator(),
-			s.statusLabel,
-		),
-	)
 	tabs := container.NewAppTabs(
-		container.NewTabItem("Session", settingsCard),
-		container.NewTabItem("Diagnostics", widget.NewCard("Diagnostics", "Device and stream status", container.NewVScroll(s.diagnosticsLabel))),
-		container.NewTabItem("Captures", recentCard),
+		container.NewTabItem("Session", sessionContent),
+		container.NewTabItem("Diagnostics", diagnosticsContent),
+		container.NewTabItem("Captures", capturesContent),
 	)
 	tabs.SetTabLocation(container.TabLocationTop)
 	content := container.NewHSplit(leftTop, tabs)

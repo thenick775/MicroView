@@ -24,7 +24,6 @@ type sessionHooks struct {
 	setReconnectEnabled func(bool)
 	addEvent            func(string)
 	updateDiagnostics   func()
-	showError           func(string, error)
 	refreshPreview      func()
 }
 
@@ -52,8 +51,6 @@ func (s *session) Start() {
 		"connect started",
 		"Connection failed",
 		"connect failed",
-		true,
-		"Connect Error",
 		func() error {
 			return s.openAndStream("Connected. Streaming live video.", "stream connected")
 		},
@@ -67,8 +64,6 @@ func (s *session) Reconnect() {
 		"reconnect started",
 		"Reconnect failed",
 		"reconnect failed",
-		true,
-		"Reconnect Failed",
 		func() error {
 			if stream == nil {
 				return s.openAndStream("Reconnected successfully. Streaming live video.", "reconnected")
@@ -147,7 +142,7 @@ func (s *session) RunDiagnostic(title string, requiresExclusiveStream bool, fn f
 	}()
 }
 
-func (s *session) runConnectionAttempt(status, startDiag, failStatus, failDiag string, showDialog bool, dialogTitle string, fn func() error) {
+func (s *session) runConnectionAttempt(status, startDiag, failStatus, failDiag string, fn func() error) {
 	s.connectMu.Lock()
 	if s.connecting || s.closing {
 		s.connectMu.Unlock()
@@ -186,9 +181,6 @@ func (s *session) runConnectionAttempt(status, startDiag, failStatus, failDiag s
 				s.hooks.setStatus(fmt.Sprintf("%s: %v", failStatus, err))
 				s.hooks.setDevice("Device: not connected")
 				s.hooks.addEvent(fmt.Sprintf("%s: %v", failDiag, err))
-				if showDialog {
-					s.hooks.showError(dialogTitle, err)
-				}
 				s.hooks.updateDiagnostics()
 			})
 		}

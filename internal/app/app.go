@@ -95,7 +95,6 @@ func Run() {
 		},
 		addEvent:          state.appendDiag,
 		updateDiagnostics: state.updateDiagnostics,
-		showError:         state.showErrorDialog,
 		refreshPreview:    state.refreshPreview,
 	})
 

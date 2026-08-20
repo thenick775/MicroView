@@ -38,16 +38,15 @@ type capture struct {
 }
 
 type uiState struct {
-	app        fyne.App
-	win        fyne.Window
-	session    *session
-	recent     []capture
-	rotations  int
-	crosshair  bool
-	fullscreen bool
-	saveDir    string
-	diagLog    []string
-	themeMode  string
+	app       fyne.App
+	win       fyne.Window
+	session   *session
+	recent    []capture
+	rotations int
+	crosshair bool
+	saveDir   string
+	diagLog   []string
+	themeMode string
 
 	preview          *canvas.Image
 	statusLabel      *widget.Label
@@ -142,21 +141,16 @@ func (s *uiState) buildUI() {
 		s.rotateLabel.SetText(fmt.Sprintf("Rotation: %d°", s.rotations*90))
 		s.refreshPreview()
 	})
-	fullscreenBtn := widget.NewButtonWithIcon("Fullscreen", theme.ViewFullScreenIcon(), func() {
-		s.fullscreen = !s.fullscreen
-		s.win.SetFullScreen(s.fullscreen)
-	})
 	folderBtn := widget.NewButtonWithIcon("Choose Folder", theme.FolderOpenIcon(), func() {
 		s.chooseFolder()
 	})
 
 	leftTop := container.NewBorder(nil, container.NewVBox(
 		widget.NewSeparator(),
-		container.NewGridWithColumns(5,
+		container.NewGridWithColumns(4,
 			s.snapshotBtn,
 			rotateBtn,
 			s.reconnectBtn,
-			fullscreenBtn,
 			folderBtn,
 		),
 		container.NewHBox(s.crosshairCheck, layout.NewSpacer(), s.rotateLabel),
@@ -348,7 +342,7 @@ func (s *uiState) runDebugAction(title, running string, requiresExclusiveStream 
 			if result != "" {
 				result += "\n"
 			}
-			result += fmt.Sprintf("panic: %v", err)
+			result += fmt.Sprintf("error: %v", err)
 		}
 		if strings.TrimSpace(result) == "" {
 			result = "No diagnostic output"

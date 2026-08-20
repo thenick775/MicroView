@@ -2,7 +2,7 @@
 Name = "MicroView"
 ID = "com.nickvancise.microview"
 Version = "0.1.0"
-Build = 48
+Build = 55
 
 [Development]
 HelperText = "MicroView for supercamera microscopes"

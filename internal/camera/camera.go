@@ -9,20 +9,19 @@ import (
 	"image"
 	_ "image/jpeg"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/gousb"
 )
 
 var (
-	errNoDevice  = errors.New("no microscope found")
-	errFrameRead = errors.New("no frame within timeout")
-	jpegSOI      = []byte{0xff, 0xd8}
-	jpegEOI      = []byte{0xff, 0xd9}
-	magicInit    = []byte{0xFF, 0x55, 0xFF, 0x55, 0xEE, 0x10}
-	connectCmd   = []byte{0xBB, 0xAA, 0x05, 0x00, 0x00}
-	validCIDs    = map[byte]bool{7: true, 11: true}
+	errNoDevice     = errors.New("no microscope found")
+	errFrameRead    = errors.New("no frame within timeout")
+	errStreamClosed = errors.New("stream is closed")
+	jpegSOI         = []byte{0xff, 0xd8}
+	jpegEOI         = []byte{0xff, 0xd9}
+	magicInit       = []byte{0xFF, 0x55, 0xFF, 0x55, 0xEE, 0x10}
+	connectCmd      = []byte{0xBB, 0xAA, 0x05, 0x00, 0x00}
 )
 
 type usbID struct {
@@ -34,14 +33,9 @@ var knownDevices = []usbID{{Vendor: 0x2CE3, Product: 0x3828}, {Vendor: 0x0329, P
 
 const (
 	epOut         = 0x01
-	epIn          = 0x81
-	epIAPOut      = 0x02
-	epIAPIn       = 0x82
 	packetSize    = 0x400
 	usbHeaderSize = 5
 	payloadOffset = 12
-	resolutionW   = 640
-	resolutionH   = 480
 )
 
 type Stats struct {
@@ -66,23 +60,22 @@ type Frame struct {
 }
 
 type Stream struct {
-	mu         sync.Mutex
-	ctx        *gousb.Context
-	device     *gousb.Device
-	config     *gousb.Config
-	iface0     *gousb.Interface
-	iface1     *gousb.Interface
-	inEP       *gousb.InEndpoint
-	outEP      *gousb.OutEndpoint
-	iapInEP    *gousb.InEndpoint
-	iapOutEP   *gousb.OutEndpoint
-	buf        []byte
-	curFID     *byte
-	framesRead atomic.Uint64
-	stats      Stats
-	start      time.Time
-	info       DeviceInfo
-	closed     bool
+	mu       sync.Mutex
+	ctx      *gousb.Context
+	device   *gousb.Device
+	config   *gousb.Config
+	iface0   *gousb.Interface
+	iface1   *gousb.Interface
+	inEP     *gousb.InEndpoint
+	outEP    *gousb.OutEndpoint
+	iapInEP  *gousb.InEndpoint
+	iapOutEP *gousb.OutEndpoint
+	buf      []byte
+	curFID   *byte
+	stats    Stats
+	start    time.Time
+	info     DeviceInfo
+	closed   bool
 }
 
 func Open() (*Stream, error) {
@@ -145,7 +138,7 @@ func (s *Stream) DebugPacketHeaders(count int, timeout time.Duration) ([]string,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.inEP == nil {
-		return nil, errors.New("stream is closed")
+		return nil, errStreamClosed
 	}
 	lines := make([]string, 0, count)
 	deadline := time.Now().Add(timeout)
@@ -222,9 +215,36 @@ func (s *Stream) connectWithRetry(attempts int) error {
 	return fmt.Errorf("could not open device after %d attempts: %w", attempts, lastErr)
 }
 
-func (s *Stream) connectLocked() error {
+func (s *Stream) connectLocked() (err error) {
 	ctx := gousb.NewContext()
-	var opened *gousb.Device
+	var (
+		opened *gousb.Device
+		config *gousb.Config
+		iface0 *gousb.Interface
+		iface1 *gousb.Interface
+		inEP   *gousb.InEndpoint
+		outEP  *gousb.OutEndpoint
+		iapIn  *gousb.InEndpoint
+		iapOut *gousb.OutEndpoint
+	)
+	defer func() {
+		if err == nil {
+			return
+		}
+		if iface1 != nil {
+			iface1.Close()
+		}
+		if iface0 != nil {
+			iface0.Close()
+		}
+		if config != nil {
+			config.Close()
+		}
+		if opened != nil {
+			opened.Close()
+		}
+		ctx.Close()
+	}()
 	devices, err := ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
 		for _, id := range knownDevices {
 			if desc.Vendor == id.Vendor && desc.Product == id.Product {
@@ -234,7 +254,6 @@ func (s *Stream) connectLocked() error {
 		return false
 	})
 	if err != nil {
-		ctx.Close()
 		return fmt.Errorf("open usb devices: %w", err)
 	}
 	for i, dev := range devices {
@@ -245,66 +264,36 @@ func (s *Stream) connectLocked() error {
 		}
 	}
 	if opened == nil {
-		ctx.Close()
 		return errNoDevice
 	}
 	opened.ControlTimeout = time.Second
 
-	config, err := opened.Config(1)
+	config, err = opened.Config(1)
 	if err != nil {
-		opened.Close()
-		ctx.Close()
 		return fmt.Errorf("open config: %w", err)
 	}
-	iface0, err := config.Interface(0, 0)
+	iface0, err = config.Interface(0, 0)
 	if err != nil {
-		config.Close()
-		opened.Close()
-		ctx.Close()
 		return fmt.Errorf("claim interface 0: %w", err)
 	}
-	iface1, err := config.Interface(1, 1)
+	iface1, err = config.Interface(1, 1)
 	if err != nil {
-		iface0.Close()
-		config.Close()
-		opened.Close()
-		ctx.Close()
 		return fmt.Errorf("claim interface 1: %w", err)
 	}
-	inEP, err := iface1.InEndpoint(1)
+	inEP, err = iface1.InEndpoint(1)
 	if err != nil {
-		iface1.Close()
-		iface0.Close()
-		config.Close()
-		opened.Close()
-		ctx.Close()
 		return fmt.Errorf("open stream in endpoint: %w", err)
 	}
-	outEP, err := iface1.OutEndpoint(1)
+	outEP, err = iface1.OutEndpoint(1)
 	if err != nil {
-		iface1.Close()
-		iface0.Close()
-		config.Close()
-		opened.Close()
-		ctx.Close()
 		return fmt.Errorf("open stream out endpoint: %w", err)
 	}
-	iapIn, err := iface0.InEndpoint(2)
+	iapIn, err = iface0.InEndpoint(2)
 	if err != nil {
-		iface1.Close()
-		iface0.Close()
-		config.Close()
-		opened.Close()
-		ctx.Close()
 		return fmt.Errorf("open iap in endpoint: %w", err)
 	}
-	iapOut, err := iface0.OutEndpoint(2)
+	iapOut, err = iface0.OutEndpoint(2)
 	if err != nil {
-		iface1.Close()
-		iface0.Close()
-		config.Close()
-		opened.Close()
-		ctx.Close()
 		return fmt.Errorf("open iap out endpoint: %w", err)
 	}
 
@@ -372,12 +361,8 @@ func (s *Stream) handshakeLocked() error {
 func (s *Stream) readJPEGLocked(timeout time.Duration) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.readJPEGWithTimeoutLocked(timeout)
-}
-
-func (s *Stream) readJPEGWithTimeoutLocked(timeout time.Duration) ([]byte, error) {
 	if s.closed || s.inEP == nil {
-		return nil, errors.New("stream is closed")
+		return nil, errStreamClosed
 	}
 	deadline := time.Now().Add(timeout)
 	pkt := make([]byte, packetSize)
@@ -396,7 +381,7 @@ func (s *Stream) readJPEGWithTimeoutLocked(timeout time.Duration) ([]byte, error
 		if n < payloadOffset {
 			continue
 		}
-		if pkt[0] != 0xAA || pkt[1] != 0xBB || !validCIDs[pkt[2]] {
+		if pkt[0] != 0xAA || pkt[1] != 0xBB || (pkt[2] != 7 && pkt[2] != 11) {
 			continue
 		}
 		length := int(binary.LittleEndian.Uint16(pkt[3:5]))
@@ -410,7 +395,6 @@ func (s *Stream) readJPEGWithTimeoutLocked(timeout time.Duration) ([]byte, error
 			s.buf = append(s.buf[:0], chunk...)
 			s.curFID = &fid
 			if isJPEG(frame) {
-				s.framesRead.Add(1)
 				return frame, nil
 			}
 			continue

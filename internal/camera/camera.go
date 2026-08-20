@@ -45,6 +45,7 @@ type Stats struct {
 	Reconnects uint64
 }
 
+// DeviceInfo describes the currently opened microscope USB device.
 type DeviceInfo struct {
 	VendorID     gousb.ID
 	ProductID    gousb.ID
@@ -53,12 +54,15 @@ type DeviceInfo struct {
 	Serial       string
 }
 
+// Frame contains one decoded microscope frame and its original JPEG payload.
 type Frame struct {
 	JPEG  []byte
 	Image image.Image
 	At    time.Time
 }
 
+// Stream owns the USB connection to the microscope and provides frame reads,
+// reconnects, and basic device diagnostics.
 type Stream struct {
 	mu       sync.Mutex
 	ctx      *gousb.Context
@@ -78,6 +82,8 @@ type Stream struct {
 	closed   bool
 }
 
+// Open locates a supported microscope, performs its startup handshake, and
+// returns a ready-to-read stream.
 func Open() (*Stream, error) {
 	s := &Stream{start: time.Now()}
 	if err := s.connectWithRetry(3); err != nil {
@@ -86,18 +92,21 @@ func Open() (*Stream, error) {
 	return s, nil
 }
 
+// DeviceInfo returns the USB identity strings for the currently opened device.
 func (s *Stream) DeviceInfo() DeviceInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.info
 }
 
+// Stats returns cumulative stream counters since the current connection began.
 func (s *Stream) Stats() Stats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.stats
 }
 
+// FPS returns the average delivered frame rate for the current connection.
 func (s *Stream) FPS() float64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -108,6 +117,8 @@ func (s *Stream) FPS() float64 {
 	return float64(s.stats.Frames) / elapsed
 }
 
+// ReadFrame waits for the next valid JPEG frame, decodes it, and returns both
+// the raw bytes and decoded image.
 func (s *Stream) ReadFrame(timeout time.Duration) (*Frame, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -134,6 +145,8 @@ func (s *Stream) ReadFrame(timeout time.Duration) (*Frame, error) {
 	return nil, errFrameRead
 }
 
+// DebugPacketHeaders captures raw packet header summaries for protocol
+// debugging without attempting to assemble full JPEG frames.
 func (s *Stream) DebugPacketHeaders(count int, timeout time.Duration) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -165,6 +178,8 @@ func (s *Stream) DebugPacketHeaders(count int, timeout time.Duration) ([]string,
 	return lines, nil
 }
 
+// Reconnect tears down the current USB state and retries the microscope
+// handshake in place so existing callers can keep using the same stream.
 func (s *Stream) Reconnect() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -186,6 +201,7 @@ func (s *Stream) Reconnect() error {
 	return fmt.Errorf("reconnect failed after 3 attempts: %w", lastErr)
 }
 
+// Close releases the USB device and marks the stream as permanently closed.
 func (s *Stream) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -193,12 +209,16 @@ func (s *Stream) Close() error {
 	return s.disconnectLocked()
 }
 
+// connect acquires the stream lock before delegating to the internal connect
+// path used by Open and retry logic.
 func (s *Stream) connect() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.connectLocked()
 }
 
+// connectWithRetry retries the full device open sequence a small number of
+// times because these microscopes can briefly NAK while transitioning states.
 func (s *Stream) connectWithRetry(attempts int) error {
 	var lastErr error
 	for range attempts {
@@ -215,6 +235,8 @@ func (s *Stream) connectWithRetry(attempts int) error {
 	return fmt.Errorf("could not open device after %d attempts: %w", attempts, lastErr)
 }
 
+// connectLocked opens the matching USB device, claims the stream interfaces,
+// and stores the resulting handles on the stream.
 func (s *Stream) connectLocked() (err error) {
 	ctx := gousb.NewContext()
 	var (
@@ -245,6 +267,8 @@ func (s *Stream) connectLocked() (err error) {
 		}
 		ctx.Close()
 	}()
+	// The camera presents a proprietary, non-UVC interface. We match the known
+	// VID:PID pairs and keep only the first successful open device.
 	devices, err := ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
 		for _, id := range knownDevices {
 			if desc.Vendor == id.Vendor && desc.Product == id.Product {
@@ -326,6 +350,8 @@ func (s *Stream) connectLocked() (err error) {
 	return nil
 }
 
+// handshakeLocked issues the vendor-specific startup commands required before
+// the stream endpoint begins delivering JPEG payloads.
 func (s *Stream) handshakeLocked() error {
 	buf := make([]byte, 512)
 	for range 30 {
@@ -358,6 +384,8 @@ func (s *Stream) handshakeLocked() error {
 	return nil
 }
 
+// readJPEGLocked reads bulk packets until a complete JPEG frame boundary is
+// observed, then returns the assembled JPEG bytes.
 func (s *Stream) readJPEGLocked(timeout time.Duration) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -390,6 +418,8 @@ func (s *Stream) readJPEGLocked(timeout time.Duration) ([]byte, error) {
 		}
 		fid := pkt[5]
 		chunk := append([]byte(nil), pkt[payloadOffset:usbHeaderSize+length]...)
+		// The device increments FID when it rolls over to the next JPEG, so a FID
+		// change tells us the buffered payload belongs to a complete prior frame.
 		if s.curFID != nil && fid != *s.curFID && len(s.buf) > 0 {
 			frame := append([]byte(nil), s.buf...)
 			s.buf = append(s.buf[:0], chunk...)
@@ -405,6 +435,8 @@ func (s *Stream) readJPEGLocked(timeout time.Duration) ([]byte, error) {
 	return nil, errFrameRead
 }
 
+// disconnectLocked releases the claimed USB resources in reverse ownership
+// order and clears the cached stream state.
 func (s *Stream) disconnectLocked() error {
 	var firstErr error
 	if s.iface1 != nil {

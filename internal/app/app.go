@@ -60,6 +60,8 @@ type uiState struct {
 	reconnectBtn     *widget.Button
 }
 
+// Run constructs the Fyne UI, wires it to a microscope session, and starts
+// the desktop app event loop.
 func Run() {
 	app := app.NewWithID(appID)
 	themeMode := app.Preferences().StringWithFallback("themeMode", theming.ModeDark)

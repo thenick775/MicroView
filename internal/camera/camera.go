@@ -37,6 +37,7 @@ type usbID struct {
 	Product gousb.ID
 }
 
+// Stats tracks stream health and frame counters for the current connection.
 type Stats struct {
 	Frames     uint64
 	USBErrors  uint64

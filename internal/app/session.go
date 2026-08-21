@@ -45,6 +45,8 @@ func newSession(hooks sessionHooks) *session {
 	return &session{hooks: hooks}
 }
 
+// Start begins the initial microscope connection attempt and starts streaming
+// on success.
 func (s *session) Start() {
 	s.runConnectionAttempt(
 		"Connecting to microscope...",
@@ -57,6 +59,8 @@ func (s *session) Start() {
 	)
 }
 
+// Reconnect retries the current microscope connection and refreshes session
+// state when the device comes back.
 func (s *session) Reconnect() {
 	stream := s.currentStream()
 	s.runConnectionAttempt(
@@ -78,6 +82,7 @@ func (s *session) Reconnect() {
 	)
 }
 
+// Stop marks the session as closing and tears down any active stream.
 func (s *session) Stop() {
 	s.connectMu.Lock()
 	s.closing = true
@@ -85,12 +90,15 @@ func (s *session) Stop() {
 	s.stopStreaming()
 }
 
+// LatestFrame returns the most recently decoded camera frame, if available.
 func (s *session) LatestFrame() *camera.Frame {
 	s.frameMu.RLock()
 	defer s.frameMu.RUnlock()
 	return s.latestFrame
 }
 
+// Snapshot returns the current connection state and stream counters for UI
+// diagnostics.
 func (s *session) Snapshot() sessionSnapshot {
 	s.streamMu.RLock()
 	stream := s.stream
@@ -107,6 +115,8 @@ func (s *session) Snapshot() sessionSnapshot {
 	}
 }
 
+// RunDiagnostic executes a debug action off the UI goroutine and reports the
+// final text result through onDone.
 func (s *session) RunDiagnostic(title string, requiresExclusiveStream bool, fn func() (string, error), onDone func(string, error)) {
 	go func() {
 		fyne.Do(func() {

@@ -37,7 +37,7 @@ Reference product listing:
 
 - Amazon: <https://www.amazon.com/KEEMIKA-Microscope-50x-1600x-Magnification-Compatible/dp/B0C7S6ZNYT>
 
-Where/why i got the product above, I sharpen knives and found the product here:
+Where/why I got the product above, I sharpen knives and found the product here:
 
 - [CBRx YouTube channel](https://www.youtube.com/@CBRxLIVE)
 
@@ -74,5 +74,3 @@ Protocol understanding and interoperability work were informed by:
 - [`MAkcanca/useeplus-linux-driver`](https://github.com/MAkcanca/useeplus-linux-driver)
 - [`jmz3/EndoscopeCamera`](https://github.com/jmz3/EndoscopeCamera)
 - [`echase/ProbeView`](https://github.com/echase/ProbeView)
-
-MicroView is not affiliated with or endorsed by the microscope vendor.

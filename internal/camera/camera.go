@@ -22,14 +22,8 @@ var (
 	jpegEOI         = []byte{0xff, 0xd9}
 	magicInit       = []byte{0xFF, 0x55, 0xFF, 0x55, 0xEE, 0x10}
 	connectCmd      = []byte{0xBB, 0xAA, 0x05, 0x00, 0x00}
+	knownDevices    = []usbID{{Vendor: 0x2CE3, Product: 0x3828}, {Vendor: 0x0329, Product: 0x2022}}
 )
-
-type usbID struct {
-	Vendor  gousb.ID
-	Product gousb.ID
-}
-
-var knownDevices = []usbID{{Vendor: 0x2CE3, Product: 0x3828}, {Vendor: 0x0329, Product: 0x2022}}
 
 const (
 	epOut         = 0x01
@@ -37,6 +31,11 @@ const (
 	usbHeaderSize = 5
 	payloadOffset = 12
 )
+
+type usbID struct {
+	Vendor  gousb.ID
+	Product gousb.ID
+}
 
 type Stats struct {
 	Frames     uint64
@@ -260,12 +259,12 @@ func (s *Stream) connectLocked() (err error) {
 			iface0.Close()
 		}
 		if config != nil {
-			config.Close()
+			_ = config.Close()
 		}
 		if opened != nil {
-			opened.Close()
+			_ = opened.Close()
 		}
-		ctx.Close()
+		_ = ctx.Close()
 	}()
 	// The camera presents a proprietary, non-UVC interface. We match the known
 	// VID:PID pairs and keep only the first successful open device.
@@ -284,7 +283,7 @@ func (s *Stream) connectLocked() (err error) {
 		if i == 0 {
 			opened = dev
 		} else {
-			dev.Close()
+			_ = dev.Close()
 		}
 	}
 	if opened == nil {
@@ -362,10 +361,9 @@ func (s *Stream) handshakeLocked() error {
 			break
 		}
 	}
-	// Python path explicitly clears halt on bulk OUT before sending connect.
-	if _, err := s.device.Control(0x02, 0x01, 0x0000, uint16(epOut), nil); err != nil {
-		// Ignore if the endpoint is not halted; this is a recovery step.
-	}
+	// Best-effort recovery: clear any halt/stall on the stream OUT endpoint
+	// before sending the proprietary connect sequence.
+	_, _ = s.device.Control(0x02, 0x01, 0x0000, uint16(epOut), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	_, err := s.iapOutEP.WriteContext(ctx, magicInit)
 	cancel()

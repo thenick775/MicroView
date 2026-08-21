@@ -20,7 +20,7 @@ func PacketHeaderDump(count int, timeout time.Duration) (string, error) {
 	if err != nil {
 		return b.String(), err
 	}
-	defer stream.Close()
+	defer closeIgnore(stream)
 	b.WriteString("open: success\n")
 	b.WriteString("debug: start\n")
 
@@ -43,7 +43,7 @@ func ProbeCapture(timeout time.Duration) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer stream.Close()
+	defer closeIgnore(stream)
 
 	info := stream.DeviceInfo()
 	frame, err := stream.ReadFrame(timeout)
@@ -74,7 +74,7 @@ func ProbeCapture(timeout time.Duration) (string, error) {
 // interfaces, and endpoint descriptors as plain text.
 func DescriptorDump() (string, error) {
 	ctx := gousb.NewContext()
-	defer ctx.Close()
+	defer closeIgnore(ctx)
 
 	devs, err := ctx.OpenDevices(func(desc *gousb.DeviceDesc) bool {
 		for _, id := range knownDevices {
@@ -89,7 +89,7 @@ func DescriptorDump() (string, error) {
 	}
 	defer func() {
 		for _, d := range devs {
-			d.Close()
+			closeIgnore(d)
 		}
 	}()
 	if len(devs) == 0 {
@@ -111,4 +111,8 @@ func DescriptorDump() (string, error) {
 		}
 	}
 	return strings.TrimSuffix(b.String(), "\n"), nil
+}
+
+func closeIgnore(c interface{ Close() error }) {
+	_ = c.Close()
 }

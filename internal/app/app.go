@@ -129,21 +129,15 @@ func (s *uiState) buildUI() {
 	})
 	s.crosshairCheck.SetChecked(s.crosshair)
 
-	s.snapshotBtn = widget.NewButtonWithIcon("Snapshot", theme.DocumentSaveIcon(), func() {
-		s.saveSnapshot()
-	})
-	s.reconnectBtn = widget.NewButtonWithIcon("Reconnect", theme.ViewRefreshIcon(), func() {
-		s.reconnect()
-	})
+	s.snapshotBtn = widget.NewButtonWithIcon("Snapshot", theme.DocumentSaveIcon(), s.saveSnapshot)
+	s.reconnectBtn = widget.NewButtonWithIcon("Reconnect", theme.ViewRefreshIcon(), s.reconnect)
 
 	rotateBtn := widget.NewButtonWithIcon("Rotate", theme.ViewRefreshIcon(), func() {
 		s.rotations = (s.rotations + 1) % 4
 		s.rotateLabel.SetText(fmt.Sprintf("Rotation: %d°", s.rotations*90))
 		s.refreshPreview()
 	})
-	folderBtn := widget.NewButtonWithIcon("Choose Folder", theme.FolderOpenIcon(), func() {
-		s.chooseFolder()
-	})
+	folderBtn := widget.NewButtonWithIcon("Choose Folder", theme.FolderOpenIcon(), s.chooseFolder)
 
 	leftTop := container.NewBorder(nil, container.NewVBox(
 		widget.NewSeparator(),
@@ -243,14 +237,12 @@ func (s *uiState) refreshRecentGrid() {
 		thumb := canvas.NewImageFromImage(imaging.Scale(item.img, 150, 112))
 		thumb.FillMode = canvas.ImageFillContain
 		thumb.SetMinSize(fyne.NewSize(96, 72))
-		openBtn := widget.NewButton(item.name, func(path string) func() {
-			return func() {
-				u, err := url.Parse("file://" + path)
-				if err == nil {
-					_ = fyne.CurrentApp().OpenURL(u)
-				}
+		openBtn := widget.NewButton(item.name, func() {
+			u, err := url.Parse("file://" + item.path)
+			if err == nil {
+				_ = fyne.CurrentApp().OpenURL(u)
 			}
-		}(item.path))
+		})
 		card := widget.NewCard(item.stamp.Format("15:04:05"), filepath.Base(item.path), container.NewBorder(nil, openBtn, nil, nil, thumb))
 		s.recentGrid.Add(card)
 	}
@@ -331,9 +323,7 @@ func (s *uiState) runDebugAction(title, running string, requiresExclusiveStream 
 	dbg := s.app.NewWindow(title)
 	dbg.Resize(fyne.NewSize(860, 520))
 	dbg.SetContent(content)
-	closeBtn.OnTapped = func() {
-		dbg.Close()
-	}
+	closeBtn.OnTapped = dbg.Close
 	dbg.Show()
 
 	s.session.RunDiagnostic(title, requiresExclusiveStream, fn, func(result string, err error) {

@@ -31,23 +31,16 @@ const (
 )
 
 type capture struct {
+	stamp time.Time
+	img   image.Image
 	name  string
 	path  string
-	img   image.Image
-	stamp time.Time
 }
 
 type uiState struct {
-	app       fyne.App
-	win       fyne.Window
-	session   *session
-	recent    []capture
-	rotations int
-	crosshair bool
-	saveDir   string
-	diagLog   []string
-	themeMode string
-
+	app                 fyne.App
+	win                 fyne.Window
+	session             *session
 	preview             *canvas.Image
 	statusLabel         *widget.Label
 	diagnosticsLabel    *widget.Label
@@ -59,6 +52,12 @@ type uiState struct {
 	snapshotBtn         *widget.Button
 	reconnectBtn        *widget.Button
 	connectingIndicator *widget.ProgressBarInfinite
+	saveDir             string
+	themeMode           string
+	recent              []capture
+	diagLog             []string
+	rotations           int
+	crosshair           bool
 }
 
 // Run constructs the Fyne UI, wires it to a microscope session, and starts

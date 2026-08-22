@@ -20,6 +20,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install tooling
+        run: |
+          go install fyne.io/tools/cmd/fyne@latest
+          go install github.com/dkorunic/betteralign/cmd/betteralign@latest
+
       - name: Check formatting
         run: if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
 
@@ -29,8 +34,8 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v9
 
-      - name: Install Fyne CLI
-        run: go install fyne.io/tools/cmd/fyne@latest
+      - name: Betteralign
+        run: ~/go/bin/betteralign ./...
 
       - name: Build Go code
         run: go build ./...

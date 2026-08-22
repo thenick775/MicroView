@@ -47,24 +47,24 @@ type Stats struct {
 
 // DeviceInfo describes the currently opened microscope USB device.
 type DeviceInfo struct {
-	VendorID     gousb.ID
-	ProductID    gousb.ID
 	Manufacturer string
 	Product      string
 	Serial       string
+	VendorID     gousb.ID
+	ProductID    gousb.ID
 }
 
 // Frame contains one decoded microscope frame and its original JPEG payload.
 type Frame struct {
-	JPEG  []byte
-	Image image.Image
 	At    time.Time
+	Image image.Image
+	JPEG  []byte
 }
 
 // Stream owns the USB connection to the microscope and provides frame reads,
 // reconnects, and basic device diagnostics.
 type Stream struct {
-	mu       sync.Mutex
+	start    time.Time
 	ctx      *gousb.Context
 	device   *gousb.Device
 	config   *gousb.Config
@@ -74,11 +74,11 @@ type Stream struct {
 	outEP    *gousb.OutEndpoint
 	iapInEP  *gousb.InEndpoint
 	iapOutEP *gousb.OutEndpoint
-	buf      []byte
 	curFID   *byte
-	stats    Stats
-	start    time.Time
 	info     DeviceInfo
+	buf      []byte
+	stats    Stats
+	mu       sync.Mutex
 	closed   bool
 }
 

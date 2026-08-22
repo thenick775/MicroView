@@ -12,10 +12,10 @@ import (
 )
 
 type sessionSnapshot struct {
-	Connected bool
 	Info      camera.DeviceInfo
 	Stats     camera.Stats
 	FPS       float64
+	Connected bool
 }
 
 type sessionHooks struct {
@@ -29,17 +29,17 @@ type sessionHooks struct {
 }
 
 type session struct {
-	streamMu    sync.RWMutex
-	connectMu   sync.Mutex
-	frameMu     sync.RWMutex
+	hooks       sessionHooks
 	stream      *camera.Stream
 	streamStop  chan struct{}
 	diagStop    chan struct{}
 	latestFrame *camera.Frame
+	streamMu    sync.RWMutex
+	frameMu     sync.RWMutex
+	connectMu   sync.Mutex
 	connected   bool
 	connecting  bool
 	closing     bool
-	hooks       sessionHooks
 }
 
 func newSession(hooks sessionHooks) *session {

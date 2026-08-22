@@ -197,7 +197,7 @@ func (s *uiState) buildUI() {
 	)
 	tabs.SetTabLocation(container.TabLocationTop)
 	content := container.NewHSplit(leftTop, tabs)
-	content.SetOffset(0.82)
+	content.SetOffset(0.8)
 
 	s.win.SetContent(content)
 	s.refreshRecentGrid()

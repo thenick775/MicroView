@@ -121,7 +121,7 @@ func (s *uiState) buildUI() {
 	s.diagnosticsLabel.Wrapping = fyne.TextWrapWord
 	s.deviceLabel = widget.NewLabel("Device: not connected")
 	s.deviceLabel.Wrapping = fyne.TextWrapWord
-	s.folderLabel = widget.NewLabel(s.saveDir)
+	s.folderLabel = widget.NewLabel(getDisplayPath(s.saveDir))
 	s.folderLabel.Wrapping = fyne.TextWrapWord
 	s.rotateLabel = widget.NewLabel("Rotation: 0°")
 
@@ -223,7 +223,7 @@ func (s *uiState) saveSnapshot() {
 		s.recent = s.recent[:maxRecentFrames]
 	}
 	s.refreshRecentGrid()
-	s.statusLabel.SetText(fmt.Sprintf("Saved snapshot to %s", path))
+	s.statusLabel.SetText(fmt.Sprintf("Saved snapshot to %s", getDisplayPath(path)))
 	s.appendDiag(fmt.Sprintf("snapshot saved: %s", name))
 	s.updateDiagnostics()
 }
@@ -262,7 +262,7 @@ func (s *uiState) chooseFolder() {
 		}
 
 		s.saveDir = uri.Path()
-		s.folderLabel.SetText(s.saveDir)
+		s.folderLabel.SetText(getDisplayPath(s.saveDir))
 		s.app.Preferences().SetString("saveDir", s.saveDir)
 		s.appendDiag("capture folder changed")
 		s.updateDiagnostics()
@@ -424,4 +424,12 @@ func (s *uiState) buildMainMenu() *fyne.MainMenu {
 	)
 
 	return fyne.NewMainMenu(viewMenu, debugMenu, helpMenu)
+}
+
+func getDisplayPath(path string) string {
+	home, _ := os.UserHomeDir()
+	if rest, ok := strings.CutPrefix(path, home); ok {
+		return "~" + rest
+	}
+	return path
 }

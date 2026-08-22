@@ -252,7 +252,7 @@ func (s *uiState) refreshRecentGrid() {
 }
 
 func (s *uiState) chooseFolder() {
-	dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+	d := dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
 		if err != nil {
 			s.showErrorDialog("Choose Folder Failed", err)
 			return
@@ -260,12 +260,16 @@ func (s *uiState) chooseFolder() {
 		if uri == nil {
 			return
 		}
+
 		s.saveDir = uri.Path()
 		s.folderLabel.SetText(s.saveDir)
 		s.app.Preferences().SetString("saveDir", s.saveDir)
 		s.appendDiag("capture folder changed")
 		s.updateDiagnostics()
 	}, s.win)
+
+	d.Resize(fyne.NewSize(900, 600))
+	d.Show()
 }
 
 func (s *uiState) reconnect() {

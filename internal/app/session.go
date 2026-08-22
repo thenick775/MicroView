@@ -25,6 +25,7 @@ type sessionHooks struct {
 	addEvent            func(string)
 	updateDiagnostics   func()
 	refreshPreview      func()
+	setConnecting       func(bool)
 }
 
 type session struct {
@@ -162,6 +163,7 @@ func (s *session) runConnectionAttempt(status, startDiag, failStatus, failDiag s
 	s.connectMu.Unlock()
 
 	s.hooks.setStatus(status)
+	s.hooks.setConnecting(true)
 	s.hooks.addEvent(startDiag)
 	s.hooks.setReconnectEnabled(false)
 	s.hooks.updateDiagnostics()
@@ -173,6 +175,7 @@ func (s *session) runConnectionAttempt(status, startDiag, failStatus, failDiag s
 			s.connectMu.Unlock()
 			fyne.Do(func() {
 				s.hooks.setReconnectEnabled(true)
+				s.hooks.setConnecting(false)
 			})
 		}()
 

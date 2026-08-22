@@ -48,16 +48,17 @@ type uiState struct {
 	diagLog   []string
 	themeMode string
 
-	preview          *canvas.Image
-	statusLabel      *widget.Label
-	diagnosticsLabel *widget.Label
-	deviceLabel      *widget.Label
-	folderLabel      *widget.Label
-	recentGrid       *fyne.Container
-	crosshairCheck   *widget.Check
-	rotateLabel      *widget.Label
-	snapshotBtn      *widget.Button
-	reconnectBtn     *widget.Button
+	preview             *canvas.Image
+	statusLabel         *widget.Label
+	diagnosticsLabel    *widget.Label
+	deviceLabel         *widget.Label
+	folderLabel         *widget.Label
+	recentGrid          *fyne.Container
+	crosshairCheck      *widget.Check
+	rotateLabel         *widget.Label
+	snapshotBtn         *widget.Button
+	reconnectBtn        *widget.Button
+	connectingIndicator *widget.ProgressBarInfinite
 }
 
 // Run constructs the Fyne UI, wires it to a microscope session, and starts
@@ -97,6 +98,15 @@ func Run() {
 		addEvent:          state.appendDiag,
 		updateDiagnostics: state.updateDiagnostics,
 		refreshPreview:    state.refreshPreview,
+		setConnecting: func(connecting bool) {
+			if connecting {
+				state.connectingIndicator.Start()
+				state.connectingIndicator.Show()
+			} else {
+				state.connectingIndicator.Stop()
+				state.connectingIndicator.Hide()
+			}
+		},
 	})
 
 	window.SetMainMenu(state.buildMainMenu())
@@ -114,6 +124,8 @@ func (s *uiState) buildUI() {
 	s.preview = canvas.NewImageFromImage(imaging.Blank(640, 480))
 	s.preview.FillMode = canvas.ImageFillContain
 	s.preview.SetMinSize(fyne.NewSize(320, 240))
+	s.connectingIndicator = widget.NewProgressBarInfinite()
+	s.connectingIndicator.Hide()
 
 	s.statusLabel = widget.NewLabel("Connecting to microscope...")
 	s.statusLabel.Wrapping = fyne.TextWrapWord
@@ -140,6 +152,10 @@ func (s *uiState) buildUI() {
 		s.refreshPreview()
 	})
 	folderBtn := widget.NewButtonWithIcon("Choose Folder", theme.FolderOpenIcon(), s.chooseFolder)
+	previewArea := container.NewStack(
+		s.preview,
+		container.NewCenter(container.NewGridWrap(fyne.NewSize(220, 18), s.connectingIndicator)),
+	)
 
 	leftTop := container.NewBorder(nil, container.NewVBox(
 		widget.NewSeparator(),
@@ -150,7 +166,7 @@ func (s *uiState) buildUI() {
 			folderBtn,
 		),
 		container.NewHBox(s.crosshairCheck, layout.NewSpacer(), s.rotateLabel),
-	), nil, nil, s.preview)
+	), nil, nil, previewArea)
 
 	s.recentGrid = container.NewGridWithColumns(2)
 	sessionContent := container.NewVScroll(container.NewPadded(container.NewVBox(

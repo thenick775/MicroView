@@ -65,7 +65,7 @@ To package as a Fyne app bundle on macOS:
 
 ```bash
 go install fyne.io/tools/cmd/fyne@latest
-~/go/bin/fyne package -os darwin -name MicroView
+~/go/bin/fyne package -os darwin -name MicroView -release
 ```
 
 ## Acknowledgements

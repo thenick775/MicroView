@@ -41,15 +41,35 @@ jobs:
         run: go build ./...
 
       - name: Package app bundle
-        run: ~/go/bin/fyne package -os darwin -name MicroView
+        run: |
+          ~/go/bin/fyne package -os darwin -name MicroView -release
 
-      - name: Zip app bundle
-        run: ditto -c -k --sequesterRsrc --keepParent MicroView.app MicroView-macos.zip
+          LIBUSB_PREFIX="$(brew --prefix libusb)"
+          LIBUSB_DYLIB="$LIBUSB_PREFIX/lib/libusb-1.0.0.dylib"
+
+          mkdir -p "MicroView.app/Contents/Frameworks"
+          cp "$LIBUSB_DYLIB" "MicroView.app/Contents/Frameworks/"
+
+          install_name_tool -change \
+            "$LIBUSB_DYLIB" \
+            "@executable_path/../Frameworks/libusb-1.0.0.dylib" \
+            "MicroView.app/Contents/MacOS/microview"
+
+          install_name_tool -id \
+            "@executable_path/../Frameworks/libusb-1.0.0.dylib" \
+            "MicroView.app/Contents/Frameworks/libusb-1.0.0.dylib"
+
+          codesign --force --sign - "MicroView.app/Contents/Frameworks/libusb-1.0.0.dylib"
+          codesign --force --sign - "MicroView.app/Contents/MacOS/microview"
+          codesign --force --deep --sign - "MicroView.app"
+
+      - name: Stage app artifact
+        run: |
+          mkdir -p artifact
+          ditto "MicroView.app" "artifact/MicroView.app"
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v7
         with:
           name: MicroView-macos
-          path: |
-            MicroView.app
-            MicroView-macos.zip
+          path: artifact

@@ -13,6 +13,11 @@ const (
 	ModeLight  = "Light"
 )
 
+type forcedVariant struct {
+	fyne.Theme
+	variant fyne.ThemeVariant
+}
+
 func ThemeForMode(mode string) fyne.Theme {
 	switch mode {
 	case ModeDark:
@@ -22,11 +27,6 @@ func ThemeForMode(mode string) fyne.Theme {
 	default:
 		return theme.DefaultTheme()
 	}
-}
-
-type forcedVariant struct {
-	fyne.Theme
-	variant fyne.ThemeVariant
 }
 
 func (f *forcedVariant) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {

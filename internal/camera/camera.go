@@ -178,8 +178,8 @@ func (s *Stream) DebugPacketHeaders(count int, timeout time.Duration) ([]string,
 	return lines, nil
 }
 
-// Reconnect tears down the current USB state and retries the microscope
-// handshake in place so existing callers can keep using the same stream.
+// Reconnect tears down the current USB state and retries the microscope handshake
+// up to 3 times in place so existing callers can keep using the same stream.
 func (s *Stream) Reconnect() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -377,7 +377,6 @@ func (s *Stream) handshakeLocked() error {
 	if err != nil {
 		return fmt.Errorf("write connect command: %w", err)
 	}
-	time.Sleep(300 * time.Millisecond)
 	s.buf = nil
 	s.curFID = nil
 	return nil

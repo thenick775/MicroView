@@ -11,20 +11,19 @@
 
 ![MicroView App Desktop](./readme-images/microview-demo.gif)
 
-A compact macOS microscope viewer built with Go and Fyne for the Geek szitman / supercamera / USeePlus USB microscope family.
+A macOS microscope viewer app built with Go and Fyne for the Geek szitman / supercamera / USeePlus USB microscope family.
 
-I built this because I sharpen knives, and got a microscope for use with a fixed angle sharpener. Sadly, all the hardware I had was not able to get it working on older devices with lightening ports, so here we are making it work on desktop! This should have the same functionality as `sup-anesok` the app, but for desktop and free/open source forever.
+I built this because I purchased a microscope for use with a fixed angle sharpener. Sadly, all the hardware I had wasn't able to get it working on older devices with lightening ports, so here we are making it work on desktop! This app has functionality similar to the `sup-anesok` app, but built specifically for desktop and free/open source forever.
 
 ## Features
 
 - Live microscope preview
 - Snapshot capture
-- Capture folder picker
+- Capture folder config
 - Recent captures gallery
 - Rotation in 90 degree steps
 - Optional crosshair overlay
-- Reconnect button
-- Fullscreen toggle
+- Reconnect flow
 - Device and stream diagnostics
 
 ## Hardware
@@ -36,43 +35,31 @@ Test target:
 - KEEMIKA model `321P`
 - Amazon ASIN `B0C7S6ZNYT`
 
-This is a non-UVC microscope. It does not work like a standard webcam. This app talks to the device over its proprietary packet protocol.
+This is a non-UVC microscope. It does not work like a standard webcam, and thus cannot be recognized as a typical camera device. This app talks to the device over its proprietary packet protocol.
 
 Reference product listing:
 
 - Amazon: <https://www.amazon.com/KEEMIKA-Microscope-50x-1600x-Magnification-Compatible/dp/B0C7S6ZNYT>
 
-Where/why I got the product above, I sharpen knives and found the product here:
+Where/why I got the product above, I sharpen knives and found the product above recommended here:
 
 - [CBRx YouTube channel](https://www.youtube.com/@CBRxLIVE)
 
-## Run
+## Getting Started
+
+### Run
 
 ```bash
 go run .
 ```
 
-Launch the packaged app bundle:
-
-```bash
-open MicroView.app
-```
-
-## macOS App Download
-
-To open `MicroView.app` from a downloaded GitHub Actions artifact:
-
-1. Unzip the downloaded artifact
-2. Move `MicroView.app` somewhere convenient, like `Applications` or `Desktop`
-3. Try opening `MicroView.app`
-4. If macOS blocks it, open `System Settings > Privacy & Security`
-5. Scroll down and click `Open Anyway` for `MicroView.app`
-
-## Build
+### Build
 
 ```bash
 go build -o MicroView
 ```
+
+### Package
 
 To package as a Fyne app bundle on macOS:
 
@@ -80,6 +67,22 @@ To package as a Fyne app bundle on macOS:
 go install fyne.io/tools/cmd/fyne@latest
 ~/go/bin/fyne package -os darwin -name MicroView -release
 ```
+
+Double click the built app or launch the packaged app bundle with:
+
+```bash
+open MicroView.app
+```
+
+## macOS App Download
+
+To open `MicroView.app` from a downloaded release or actions artifact:
+
+1. Unzip the downloaded artifact
+2. Move `MicroView.app` somewhere convenient, like `Applications` or `Desktop`
+3. Try opening `MicroView.app`
+4. If macOS blocks it, open `System Settings > Privacy & Security`
+5. Scroll down and click `Open Anyway` for `MicroView.app`
 
 ## Acknowledgements
 

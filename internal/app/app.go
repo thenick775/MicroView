@@ -2,11 +2,13 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"image"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,7 +35,6 @@ const (
 type capture struct {
 	stamp time.Time
 	img   image.Image
-	name  string
 	path  string
 }
 
@@ -47,6 +48,7 @@ type uiState struct {
 	deviceLabel         *widget.Label
 	folderLabel         *widget.Label
 	recentGrid          *fyne.Container
+	seeMoreRow          *fyne.Container
 	crosshairCheck      *widget.Check
 	rotateLabel         *widget.Label
 	snapshotBtn         *widget.Button
@@ -57,6 +59,7 @@ type uiState struct {
 	recent              []capture
 	diagLog             []string
 	rotations           int
+	hasMoreRecent       bool
 	crosshair           bool
 }
 
@@ -167,7 +170,10 @@ func (s *uiState) buildUI() {
 		container.NewHBox(s.crosshairCheck, layout.NewSpacer(), s.rotateLabel),
 	), nil, nil, previewArea)
 
-	s.recentGrid = container.NewGridWithColumns(2)
+	s.recentGrid = container.NewGridWrap(fyne.NewSize(176, 136))
+	seeMoreBtn := widget.NewButton("See More", s.openCaptureFolder)
+	s.seeMoreRow = container.NewHBox(layout.NewSpacer(), seeMoreBtn, layout.NewSpacer())
+	s.seeMoreRow.Hide()
 	sessionContent := container.NewVScroll(container.NewPadded(container.NewVBox(
 		widget.NewLabel("Capture folder and current device"),
 		widget.NewSeparator(),
@@ -187,6 +193,7 @@ func (s *uiState) buildUI() {
 		widget.NewLabel("Latest snapshots"),
 		widget.NewSeparator(),
 		s.recentGrid,
+		s.seeMoreRow,
 	)))
 
 	tabs := container.NewAppTabs(
@@ -199,6 +206,7 @@ func (s *uiState) buildUI() {
 	content.SetOffset(0.8)
 
 	s.win.SetContent(content)
+	s.loadRecentCaptures()
 	s.refreshRecentGrid()
 	s.updateDiagnostics()
 }
@@ -232,11 +240,8 @@ func (s *uiState) saveSnapshot() {
 		s.showErrorDialog("Save Snapshot Failed", err)
 		return
 	}
-	c := capture{name: name, path: path, img: imaging.ApplyTransforms(frame.Image, s.rotations, s.crosshair), stamp: time.Now()}
-	s.recent = append([]capture{c}, s.recent...)
-	if len(s.recent) > maxRecentFrames {
-		s.recent = s.recent[:maxRecentFrames]
-	}
+	c := capture{path: path, img: imaging.ApplyTransforms(frame.Image, s.rotations, s.crosshair), stamp: time.Now()}
+	s.prependRecentCapture(c)
 	s.refreshRecentGrid()
 	s.statusLabel.SetText(fmt.Sprintf("Saved snapshot to %s", getDisplayPath(path)))
 	s.appendDiag(fmt.Sprintf("snapshot saved: %s", name))
@@ -245,25 +250,43 @@ func (s *uiState) saveSnapshot() {
 
 func (s *uiState) refreshRecentGrid() {
 	s.recentGrid.Objects = nil
+	s.seeMoreRow.Hide()
 	if len(s.recent) == 0 {
 		s.recentGrid.Add(widget.NewLabel("No captures yet"))
+		if s.hasMoreRecent {
+			s.seeMoreRow.Show()
+		}
 		s.recentGrid.Refresh()
+		s.seeMoreRow.Refresh()
 		return
 	}
 	for _, item := range s.recent {
 		thumb := canvas.NewImageFromImage(imaging.Scale(item.img, 150, 112))
 		thumb.FillMode = canvas.ImageFillContain
-		thumb.SetMinSize(fyne.NewSize(96, 72))
-		openBtn := widget.NewButton(item.name, func() {
+		thumb.SetMinSize(fyne.NewSize(160, 120))
+		openBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
 			u, err := url.Parse("file://" + item.path)
 			if err == nil {
 				_ = fyne.CurrentApp().OpenURL(u)
 			}
 		})
-		card := widget.NewCard(item.stamp.Format("15:04:05"), filepath.Base(item.path), container.NewBorder(nil, openBtn, nil, nil, thumb))
-		s.recentGrid.Add(card)
+		tile := container.NewStack(
+			container.NewPadded(thumb),
+			container.NewBorder(
+				container.NewHBox(layout.NewSpacer(), container.NewPadded(openBtn)),
+				nil,
+				nil,
+				nil,
+				nil,
+			),
+		)
+		s.recentGrid.Add(tile)
 	}
 	s.recentGrid.Refresh()
+	if s.hasMoreRecent {
+		s.seeMoreRow.Show()
+	}
+	s.seeMoreRow.Refresh()
 }
 
 func (s *uiState) chooseFolder() {
@@ -279,6 +302,8 @@ func (s *uiState) chooseFolder() {
 		s.saveDir = uri.Path()
 		s.folderLabel.SetText(getDisplayPath(s.saveDir))
 		s.app.Preferences().SetString("saveDir", s.saveDir)
+		s.loadRecentCaptures()
+		s.refreshRecentGrid()
 		s.appendDiag("capture folder changed")
 		s.updateDiagnostics()
 	}, s.win)
@@ -289,6 +314,76 @@ func (s *uiState) chooseFolder() {
 
 func (s *uiState) reconnect() {
 	s.session.Reconnect()
+}
+
+func (s *uiState) loadRecentCaptures() {
+	entries, err := os.ReadDir(s.saveDir)
+	if err != nil {
+		s.recent = nil
+		s.hasMoreRecent = false
+		return
+	}
+
+	files := make([]capture, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if ext != ".jpg" && ext != ".jpeg" {
+			continue
+		}
+		path := filepath.Join(s.saveDir, entry.Name())
+		capture, err := loadCapture(path)
+		if err != nil {
+			continue
+		}
+		files = append(files, capture)
+	}
+
+	slices.SortFunc(files, func(a, b capture) int {
+		return cmp.Compare(b.stamp.UnixNano(), a.stamp.UnixNano())
+	})
+
+	s.hasMoreRecent = len(files) > maxRecentFrames
+	if len(files) > maxRecentFrames {
+		files = files[:maxRecentFrames]
+	}
+	s.recent = files
+}
+
+func loadCapture(path string) (capture, error) {
+	img, info, err := imaging.Load(path)
+	if err != nil {
+		return capture{}, err
+	}
+	return capture{
+		path:  path,
+		img:   img,
+		stamp: info.ModTime(),
+	}, nil
+}
+
+func (s *uiState) prependRecentCapture(c capture) {
+	filtered := make([]capture, 0, len(s.recent)+1)
+	filtered = append(filtered, c)
+	for _, existing := range s.recent {
+		if existing.path == c.path {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	if len(filtered) > maxRecentFrames {
+		filtered = filtered[:maxRecentFrames]
+	}
+	s.recent = filtered
+}
+
+func (s *uiState) openCaptureFolder() {
+	u, err := url.Parse("file://" + s.saveDir)
+	if err == nil {
+		_ = fyne.CurrentApp().OpenURL(u)
+	}
 }
 
 func (s *uiState) appendDiag(msg string) {

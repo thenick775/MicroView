@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"os"
 )
 
 // ApplyTransforms clones src, applies quarter-turn rotations, and optionally
@@ -107,9 +108,31 @@ func Blank(w, h int) image.Image {
 	return img
 }
 
+// Load opens and returns a decoded image file and its file metadata from disk.
+func Load(path string) (image.Image, os.FileInfo, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer closeIgnore(file)
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil, nil, err
+	}
+	return img, info, nil
+}
+
 func abs(n int) int {
 	if n < 0 {
 		return -n
 	}
 	return n
+}
+
+func closeIgnore(c interface{ Close() error }) {
+	_ = c.Close()
 }

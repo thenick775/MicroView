@@ -1,6 +1,9 @@
 # MicroView
 
 <div>
+  <a href="https://github.com/thenick775/MicroView/releases">
+    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/thenick775/MicroView">
+  </a>
   <a href="https://github.com/thenick775/MicroView/actions/workflows/build-macos.yml">
     <img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/thenick775/MicroView/build-macos.yml">
   </a>
@@ -54,6 +57,16 @@ Launch the packaged app bundle:
 ```bash
 open MicroView.app
 ```
+
+## macOS App Download
+
+To open `MicroView.app` from a downloaded GitHub Actions artifact:
+
+1. Unzip the downloaded artifact
+2. Move `MicroView.app` somewhere convenient, like `Applications` or `Desktop`
+3. Try opening `MicroView.app`
+4. If macOS blocks it, open `System Settings > Privacy & Security`
+5. Scroll down and click `Open Anyway` for `MicroView.app`
 
 ## Build
 

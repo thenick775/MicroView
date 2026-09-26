@@ -23,19 +23,23 @@ import (
 
 	"microview/internal/camera"
 	"microview/internal/imaging"
+	"microview/internal/recording"
 	"microview/internal/theming"
 )
 
 const (
-	appID           = "com.nickvancise.microview"
-	defaultSaveDir  = "~/Desktop/MicroView Captures"
-	maxRecentFrames = 8
+	appID             = "com.nickvancise.microview"
+	defaultSaveDir    = "~/Desktop/MicroView Captures"
+	maxRecentFrames   = 8
+	mediaKindSnapshot = "snapshot"
+	mediaKindVideo    = "video"
 )
 
 type capture struct {
 	stamp time.Time
 	img   image.Image
 	path  string
+	kind  string
 }
 
 type uiState struct {
@@ -52,8 +56,10 @@ type uiState struct {
 	crosshairCheck      *widget.Check
 	rotateLabel         *widget.Label
 	snapshotBtn         *widget.Button
+	videoBtn            *widget.Button
 	reconnectBtn        *widget.Button
 	connectingIndicator *widget.ProgressBarInfinite
+	recordingManager    recording.Manager
 	saveDir             string
 	themeMode           string
 	recent              []capture
@@ -100,6 +106,7 @@ func Run() {
 		addEvent:          state.appendDiag,
 		updateDiagnostics: state.updateDiagnostics,
 		refreshPreview:    state.refreshPreview,
+		handleFrame:       state.handleFrame,
 		setConnecting: func(connecting bool) {
 			if connecting {
 				state.connectingIndicator.Start()
@@ -114,6 +121,7 @@ func Run() {
 	window.SetMainMenu(state.buildMainMenu())
 	state.buildUI()
 	state.win.SetCloseIntercept(func() {
+		_, _, _ = state.recordingManager.Finish()
 		state.session.Stop()
 		state.win.Close()
 	})
@@ -146,6 +154,7 @@ func (s *uiState) buildUI() {
 	s.crosshairCheck.SetChecked(s.crosshair)
 
 	s.snapshotBtn = widget.NewButtonWithIcon("Snapshot", theme.DocumentSaveIcon(), s.saveSnapshot)
+	s.videoBtn = widget.NewButtonWithIcon("Start Video", theme.MediaRecordIcon(), s.toggleVideoRecording)
 	s.reconnectBtn = widget.NewButtonWithIcon("Reconnect", theme.ViewRefreshIcon(), s.reconnect)
 
 	rotateBtn := widget.NewButtonWithIcon("Rotate", theme.ViewRefreshIcon(), func() {
@@ -161,8 +170,9 @@ func (s *uiState) buildUI() {
 
 	leftTop := container.NewBorder(nil, container.NewVBox(
 		widget.NewSeparator(),
-		container.NewGridWithColumns(4,
+		container.NewGridWithColumns(5,
 			s.snapshotBtn,
+			s.videoBtn,
 			rotateBtn,
 			s.reconnectBtn,
 			folderBtn,
@@ -171,7 +181,7 @@ func (s *uiState) buildUI() {
 	), nil, nil, previewArea)
 
 	s.recentGrid = container.NewGridWrap(fyne.NewSize(176, 136))
-	seeMoreBtn := widget.NewButton("See More", s.openCaptureFolder)
+	seeMoreBtn := widget.NewButton("See All", s.openCaptureFolder)
 	s.seeMoreRow = container.NewHBox(layout.NewSpacer(), seeMoreBtn, layout.NewSpacer())
 	s.seeMoreRow.Hide()
 	sessionContent := container.NewVScroll(container.NewPadded(container.NewVBox(
@@ -190,7 +200,7 @@ func (s *uiState) buildUI() {
 		s.diagnosticsLabel,
 	)))
 	capturesContent := container.NewVScroll(container.NewPadded(container.NewVBox(
-		widget.NewLabel("Latest snapshots"),
+		widget.NewLabel("Latest captures"),
 		widget.NewSeparator(),
 		s.recentGrid,
 		s.seeMoreRow,
@@ -240,12 +250,95 @@ func (s *uiState) saveSnapshot() {
 		s.showErrorDialog("Save Snapshot Failed", err)
 		return
 	}
-	c := capture{path: path, img: imaging.ApplyTransforms(frame.Image, s.rotations, s.crosshair), stamp: time.Now()}
+	c := capture{path: path, img: imaging.ApplyTransforms(frame.Image, s.rotations, s.crosshair), stamp: time.Now(), kind: mediaKindSnapshot}
 	s.prependRecentCapture(c)
 	s.refreshRecentGrid()
 	s.statusLabel.SetText(fmt.Sprintf("Saved snapshot to %s", getDisplayPath(path)))
 	s.appendDiag(fmt.Sprintf("snapshot saved: %s", name))
 	s.updateDiagnostics()
+}
+
+func (s *uiState) handleFrame(frame *camera.Frame) {
+	s.recordingManager.WriteFrame(frame.JPEG)
+}
+
+func (s *uiState) toggleVideoRecording() {
+	if s.recordingManager.Active() {
+		s.stopVideoRecording()
+		return
+	}
+	s.startVideoRecording()
+}
+
+func (s *uiState) startVideoRecording() {
+	frame := s.session.LatestFrame()
+	if frame == nil {
+		dialog.ShowInformation("No Frame Yet", "Wait for the first live frame before recording video.", s.win)
+		return
+	}
+	if err := os.MkdirAll(s.saveDir, 0o755); err != nil {
+		s.showErrorDialog("Create Capture Folder Failed", err)
+		return
+	}
+	name := recording.Name(time.Now())
+	path := filepath.Join(s.saveDir, name)
+	if err := s.recordingManager.Start(path); err != nil {
+		s.showErrorDialog("Start Video Failed", err)
+		return
+	}
+	s.recordingManager.WriteFrame(frame.JPEG)
+
+	s.videoBtn.SetText("Stop Video")
+	s.videoBtn.SetIcon(theme.MediaStopIcon())
+	s.statusLabel.SetText(fmt.Sprintf("Recording video to %s", getDisplayPath(path)))
+	s.appendDiag(fmt.Sprintf("video recording started: %s", name))
+	s.updateDiagnostics()
+}
+
+func (s *uiState) stopVideoRecording() {
+	s.videoBtn.Disable()
+	s.statusLabel.SetText("Finalizing video...")
+	go func() {
+		path, ok, err := s.recordingManager.Finish()
+		if !ok {
+			fyne.Do(func() {
+				s.videoBtn.Enable()
+				s.videoBtn.SetText("Start Video")
+				s.videoBtn.SetIcon(theme.MediaRecordIcon())
+			})
+			return
+		}
+		c := capture{path: path, kind: mediaKindVideo, stamp: time.Now()}
+		posterFailed := false
+		if err == nil {
+			if posterPath, posterErr := recording.WritePoster(path); posterErr == nil {
+				if poster, _, loadErr := imaging.Load(posterPath); loadErr == nil {
+					c.img = poster
+				}
+			} else {
+				posterFailed = true
+			}
+		}
+		fyne.Do(func() {
+			s.videoBtn.Enable()
+			s.videoBtn.SetText("Start Video")
+			s.videoBtn.SetIcon(theme.MediaRecordIcon())
+			if err != nil {
+				s.showErrorDialog("Save Video Failed", err)
+				s.appendDiag("video recording failed")
+				s.updateDiagnostics()
+				return
+			}
+			if posterFailed {
+				s.appendDiag("video poster failed")
+			}
+			s.prependRecentCapture(c)
+			s.refreshRecentGrid()
+			s.statusLabel.SetText(fmt.Sprintf("Saved video to %s", getDisplayPath(path)))
+			s.appendDiag(fmt.Sprintf("video saved: %s", filepath.Base(path)))
+			s.updateDiagnostics()
+		})
+	}()
 }
 
 func (s *uiState) refreshRecentGrid() {
@@ -261,17 +354,28 @@ func (s *uiState) refreshRecentGrid() {
 		return
 	}
 	for _, item := range s.recent {
-		thumb := canvas.NewImageFromImage(imaging.Scale(item.img, 150, 112))
-		thumb.FillMode = canvas.ImageFillContain
-		thumb.SetMinSize(fyne.NewSize(160, 120))
-		openBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
+		var media fyne.CanvasObject
+		if item.kind == mediaKindVideo && item.img == nil {
+			icon := widget.NewIcon(theme.FileVideoIcon())
+			media = container.NewCenter(icon)
+		} else {
+			thumb := canvas.NewImageFromImage(imaging.Scale(item.img, 150, 112))
+			thumb.FillMode = canvas.ImageFillContain
+			thumb.SetMinSize(fyne.NewSize(160, 120))
+			media = container.NewPadded(thumb)
+		}
+		openIcon := theme.FolderOpenIcon()
+		if item.kind == mediaKindVideo {
+			openIcon = theme.MediaVideoIcon()
+		}
+		openBtn := widget.NewButtonWithIcon("", openIcon, func() {
 			u, err := url.Parse("file://" + item.path)
 			if err == nil {
 				_ = fyne.CurrentApp().OpenURL(u)
 			}
 		})
 		tile := container.NewStack(
-			container.NewPadded(thumb),
+			media,
 			container.NewBorder(
 				container.NewHBox(layout.NewSpacer(), container.NewPadded(openBtn)),
 				nil,
@@ -330,7 +434,10 @@ func (s *uiState) loadRecentCaptures() {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".jpg" && ext != ".jpeg" {
+		if strings.HasSuffix(strings.ToLower(entry.Name()), ".poster.jpg") {
+			continue
+		}
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".mp4" {
 			continue
 		}
 		path := filepath.Join(s.saveDir, entry.Name())
@@ -353,6 +460,28 @@ func (s *uiState) loadRecentCaptures() {
 }
 
 func loadCapture(path string) (capture, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".mp4" {
+		info, err := os.Stat(path)
+		if err != nil {
+			return capture{}, err
+		}
+		var img image.Image
+		posterPath := recording.PosterPath(path)
+		if poster, _, err := imaging.Load(posterPath); err == nil {
+			img = poster
+		} else if generated, err := recording.WritePoster(path); err == nil {
+			if poster, _, err := imaging.Load(generated); err == nil {
+				img = poster
+			}
+		}
+		return capture{
+			path:  path,
+			img:   img,
+			kind:  mediaKindVideo,
+			stamp: info.ModTime(),
+		}, nil
+	}
 	img, info, err := imaging.Load(path)
 	if err != nil {
 		return capture{}, err
@@ -360,6 +489,7 @@ func loadCapture(path string) (capture, error) {
 	return capture{
 		path:  path,
 		img:   img,
+		kind:  mediaKindSnapshot,
 		stamp: info.ModTime(),
 	}, nil
 }

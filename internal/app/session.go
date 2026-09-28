@@ -25,6 +25,7 @@ type sessionHooks struct {
 	addEvent            func(string)
 	updateDiagnostics   func()
 	refreshPreview      func()
+	handleFrame         func(*camera.Frame)
 	setConnecting       func(bool)
 }
 
@@ -277,6 +278,7 @@ func (s *session) streamLoop(stream *camera.Stream, stop <-chan struct{}) {
 		s.frameMu.Lock()
 		s.latestFrame = frame
 		s.frameMu.Unlock()
+		s.hooks.handleFrame(frame)
 		fyne.Do(s.hooks.refreshPreview)
 	}
 }

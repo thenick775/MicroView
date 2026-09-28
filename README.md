@@ -18,7 +18,7 @@ I built this because I purchased a microscope for use with a fixed angle sharpen
 ## Features
 
 - Live microscope preview
-- Snapshot capture
+- Snapshot/video capture
 - Capture folder config
 - Recent captures gallery
 - Rotation in 90 degree steps
